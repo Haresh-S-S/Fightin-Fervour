@@ -152,6 +152,30 @@ Toggles persist across rounds until turned off.
 
 ---
 
+## 🎵 Background Music (BGM)
+
+The game features dynamic, looped soundtrack integration across all screens and battle arenas:
+
+| Screen / Stage | Music Track | File |
+|----------------|-------------|------|
+| **Title Screen & Main Menu** | Menu Theme | `menu.m4a` |
+| **Character Select** | Menu Theme | `menu.m4a` |
+| **Map Select** | Menu Theme | `menu.m4a` |
+| **Ancient Temple** | Ancient Temple Theme | `AncientTemple.m4a` |
+| **Crystal Cave** | Crystal Cave Theme | `CrystalCave.m4a` |
+| **Dark Caves** | Dark Caves Theme | `DarkCaves.m4a` |
+| **Green Forest** | Green Forest Theme | `GreenForest.m4a` |
+| **Oak Forest / The Shop** | Oak Forest Theme | `OakForest.m4a` |
+| **Sunset Mountain** | Sunset Mountain Theme | `SunsetMountain.m4a` |
+| **Trees Night** | Trees Night Theme | `TreesNight.m4a` |
+| **Terrace** | Terrace Theme | `terrace.m4a` |
+| **Throne Room** | Throne Room Theme | `throneroom.m4a` |
+
+- **Music Toggle**: Press `O` or click the `🔊 MUSIC ON/OFF` button in the lower right corner to toggle mute at any time.
+- **Autoplay Compliance**: Music automatically unlocks and begins playing on the user's first interaction.
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -159,13 +183,17 @@ Fightin Fervor/
 ├── index.html              # Game shell, HUD, overlays
 ├── index.js                # Main game loop, input, round/match flow
 ├── style.css               # All visual styling and animations
+├── BackgroundMusic/        # Looped background music for menus and stages (.m4a)
 ├── js/
 │   ├── classes.js          # Sprite + Fighter class (physics, combat)
 │   ├── characters.js       # Character registry and stat definitions
 │   ├── characterSelect.js  # Character select screen
+│   ├── mapSelect.js        # Stage selection screen with previews
+│   ├── music.js            # Background Music Manager (BGM)
 │   ├── ai.js               # AI brain (Normal / Hard profiles)
 │   ├── sfx.js              # Procedural Web Audio sound effects
 │   ├── effects.js          # Particles, screen shake, damage numbers
 │   ├── online.js           # Socket.io online multiplayer wrapper
 │   └── utils.js            # Collision detection, timer, win logic
-└── images/                 # Sprite sheets per character
+└── images/                 # Sprite sheets and stage backgrounds
+```

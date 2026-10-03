@@ -13,51 +13,61 @@ const MS = (() => {
     {
       name:     'The Shop',
       file:     './images/background.png',
+      music:    './BackgroundMusic/OakForest.m4a',
       showShop: true,
     },
     {
       name:     'Ancient Temple',
       file:     './images/Backgrounds/AncientTemple.png',
+      music:    './BackgroundMusic/AncientTemple.m4a',
       showShop: false,
     },
     {
       name:     'Crystal Cave',
       file:     './images/Backgrounds/CrystalCave.png',
+      music:    './BackgroundMusic/CrystalCave.m4a',
       showShop: false,
     },
     {
       name:     'Dark Caves',
       file:     './images/Backgrounds/DarkCaves.png',
+      music:    './BackgroundMusic/DarkCaves.m4a',
       showShop: false,
     },
     {
       name:     'Green Forest',
       file:     './images/Backgrounds/GreenForest.png',
+      music:    './BackgroundMusic/GreenForest.m4a',
       showShop: false,
     },
     {
       name:     'Oak Forest',
       file:     './images/Backgrounds/OakForest.png',
+      music:    './BackgroundMusic/OakForest.m4a',
       showShop: false,
     },
     {
       name:     'Sunset Mountain',
       file:     './images/Backgrounds/SunsetMountain.png',
+      music:    './BackgroundMusic/SunsetMountain.m4a',
       showShop: false,
     },
     {
       name:     'Trees Night',
       file:     './images/Backgrounds/TreesNight.png',
+      music:    './BackgroundMusic/TreesNight.m4a',
       showShop: false,
     },
     {
       name:     'Terrace',
       file:     './images/Backgrounds/terrace.png',
+      music:    './BackgroundMusic/terrace.m4a',
       showShop: false,
     },
     {
       name:     'Throne Room',
       file:     './images/Backgrounds/throne room.png',
+      music:    './BackgroundMusic/throneroom.m4a',
       showShop: false,
     },
   ];
@@ -189,7 +199,7 @@ const MS = (() => {
       setTimeout(() => {
         close();
         if (typeof startMatch === 'function') {
-          startMatch(_p1Key, _p2Key, _difficulty, chosen.file, chosen.showShop);
+          startMatch(_p1Key, _p2Key, _difficulty, chosen.file, chosen.showShop, chosen.music);
         }
       }, 500);
     }
@@ -276,6 +286,10 @@ const MS = (() => {
       p2Label.textContent = '▶ P2: ◀▶ + ENTER ▶';
       p2Label.style.display = '';
       p2PickEl.style.display = '';
+    }
+
+    if (typeof BGM !== 'undefined') {
+      BGM.playMenu();
     }
 
     buildGrid();

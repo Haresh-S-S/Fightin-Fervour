@@ -283,6 +283,9 @@ const CS = (() => {
 
   // ── Shared open logic ──────────────────────────────────────────
   function _openScreen() {
+    if (typeof BGM !== 'undefined') {
+      BGM.playMenu();
+    }
     p1Confirmed = false;
     p2Confirmed = false;
     p1Index     = 0;

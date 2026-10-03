@@ -1525,3 +1525,56 @@ canvas {
   text-shadow: 0 0 10px #ffd700, 2px 2px 0 #000;
   text-align: center;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   BACKGROUND MUSIC (BGM) UI CONTROLS
+═══════════════════════════════════════════════════════════ */
+.bgm-toggle-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 14px;
+  z-index: 60;
+  background: rgba(10, 10, 20, 0.75);
+  border: 1.5px solid rgba(255, 215, 0, 0.45);
+  color: #ffd700;
+  border-radius: 4px;
+  padding: 5px 9px;
+  font-size: 7px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  transition: all 0.18s ease;
+  user-select: none;
+  opacity: 0.85;
+}
+
+.bgm-toggle-btn:hover {
+  opacity: 1;
+  background: rgba(20, 20, 35, 0.95);
+  border-color: #ffd700;
+  transform: translateY(-1px);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
+}
+
+.bgm-toggle-btn:active {
+  transform: translateY(1px);
+}
+
+.bgm-toggle-btn.muted {
+  border-color: rgba(255, 100, 100, 0.45);
+  color: #ff8888;
+}
+
+.bgm-toggle-btn.muted:hover {
+  border-color: #ff6666;
+  box-shadow: 0 0 10px rgba(255, 80, 80, 0.35);
+}
+
+.bgm-icon {
+  font-size: 11px;
+  line-height: 1;
+}

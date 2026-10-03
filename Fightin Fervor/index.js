@@ -16,6 +16,7 @@ const gravity = 0.7;
 // ── Map / stage state (chosen in mapSelect.js) ──────────────
 let chosenMapPath     = './images/background.png';
 let chosenMapShowShop = true;
+let chosenMapMusic    = './BackgroundMusic/OakForest.m4a';
 
 const background = new Sprite({
   position: { x: 0, y: 0 },
@@ -385,16 +386,21 @@ function startRound(p1Key, p2Key) {
 // START A FULL MATCH  (called by characterSelect.js)
 // difficulty === null means 2-player mode
 // ════════════════════════════════════════════════════════════
-function startMatch(p1Key, p2Key, difficulty, mapPath, showShop) {
+function startMatch(p1Key, p2Key, difficulty, mapPath, showShop, musicPath) {
   chosenP1Key       = p1Key;
   chosenP2Key       = p2Key;
   isSinglePlayer    = (difficulty !== null && difficulty !== undefined);
   aiDifficulty      = difficulty || 'normal';
   chosenMapPath     = mapPath    || './images/background.png';
   chosenMapShowShop = (showShop === undefined || showShop === null) ? true : !!showShop;
+  chosenMapMusic    = musicPath  || (typeof BGM !== 'undefined' ? BGM.getMusicForMap(chosenMapPath) : './BackgroundMusic/OakForest.m4a');
   currentRound   = 0;
   p1RoundWins    = 0;
   p2RoundWins    = 0;
+
+  if (typeof BGM !== 'undefined') {
+    BGM.playStage(chosenMapMusic);
+  }
 
   refreshWinDots();
   startRound(p1Key, p2Key);
@@ -772,8 +778,10 @@ window.addEventListener('keydown', (event) => {
         ONLINE.sendRematch();
         // Wait for opponent's rematch echo (handled in onRematch listener)
       } else if (isSinglePlayer) {
+        if (typeof BGM !== 'undefined') BGM.playMenu();
         showDifficultySelect();
       } else {
+        if (typeof BGM !== 'undefined') BGM.playMenu();
         CS.show();
       }
       return;
@@ -790,6 +798,7 @@ window.addEventListener('keydown', (event) => {
       isSinglePlayer = false;
       document.getElementById('onlineHudBadge').style.display = 'none';
       mainMenu.style.display = 'flex';
+      if (typeof BGM !== 'undefined') BGM.playMenu();
       return;
     }
   }
@@ -849,7 +858,8 @@ window.addEventListener('keyup', (event) => {
 // DIFFICULTY SELECT SCREEN
 // ════════════════════════════════════════════════════════════
 function showDifficultySelect() {
-  document.getElementById('difficultySelect').style.display = 'flex';
+    if (typeof BGM !== 'undefined') BGM.playMenu();
+    document.getElementById('difficultySelect').style.display = 'flex';
 }
 
 function hideDifficultySelect() {
@@ -1094,12 +1104,14 @@ document.getElementById('onlineBackBtn').addEventListener('click', () => {
   ONLINE.disconnect();
   hideOnlineMenu();
   mainMenu.style.display = 'flex';
+  if (typeof BGM !== 'undefined') BGM.playMenu();
 });
 
 document.getElementById('onlineWaitBackBtn').addEventListener('click', () => {
   ONLINE.disconnect();
   hideOnlineMenu();
   mainMenu.style.display = 'flex';
+  if (typeof BGM !== 'undefined') BGM.playMenu();
 });
 
 // Disconnect overlay OK button
@@ -1110,6 +1122,7 @@ document.getElementById('disconnectOkBtn').addEventListener('click', () => {
   ONLINE.disconnect();
   hideAllResults();
   mainMenu.style.display = 'flex';
+  if (typeof BGM !== 'undefined') BGM.playMenu();
 });
 
 // Trigger online menu from main menu
@@ -1126,6 +1139,7 @@ function startOnlineMatch(p1Key, p2Key) {
   chosenP2Key    = p2Key;
   isSinglePlayer = false;
   isOnline       = true;
+  chosenMapMusic = typeof BGM !== 'undefined' ? BGM.getMusicForMap(chosenMapPath) : './BackgroundMusic/OakForest.m4a';
   currentRound   = 0;
   p1RoundWins    = 0;
   p2RoundWins    = 0;
@@ -1133,6 +1147,10 @@ function startOnlineMatch(p1Key, p2Key) {
   opponentKeys    = {};
   opponentActions = {};
   localActions    = {};
+
+  if (typeof BGM !== 'undefined') {
+    BGM.playStage(chosenMapMusic);
+  }
 
   // Show online role in HUD badge
   onlineHudBadge.style.display = 'block';
@@ -1154,4 +1172,18 @@ function startOnlineMatch(p1Key, p2Key) {
 }
 // Expose globally so characterSelect.js can call it
 window.startOnlineMatch = startOnlineMatch;
+
+// Music toggle UI and shortcut wiring
+const bgmBtn = document.getElementById('bgmToggleBtn');
+if (bgmBtn) {
+  bgmBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (typeof BGM !== 'undefined') BGM.toggleMute();
+  });
+}
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'p' || e.key === 'P') {
+    if (typeof BGM !== 'undefined') BGM.toggleMute();
+  }
+});
 
