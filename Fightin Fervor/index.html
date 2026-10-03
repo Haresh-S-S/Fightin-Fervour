@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="UTF-8">
+  <title>Fightin' Fervor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <!-- ═══════════════════════════════════════════════════════
+       GAME CONTAINER — every overlay + canvas lives inside here.
+       position:relative is what anchors all the HUD elements.
+  ════════════════════════════════════════════════════════════ -->
+  <div id="gameContainer">
+
+    <!-- ── MAIN MENU (title screen) ────────────────────── -->
+    <div id="mainMenu">
+      <!-- Flanking character sprites -->
+      <img id="menuCharLeft"  src="./images/drunk_char.png"   alt="Homeless Guy" draggable="false">
+      <img id="menuCharRight" src="./images/vampire_char.png" alt="Vampire"       draggable="false">
+
+      <!-- Title -->
+      <h1 id="mainTitle">FIGHTIN'<br>FERVOR</h1>
+
+      <!-- Menu items -->
+      <nav id="mainMenuNav">
+        <div class="menu-item" id="menuItem0" data-action="2p">LOCAL 2 PLAYER</div>
+        <div class="menu-item" id="menuItem1" data-action="1p">SINGLEPLAYER (VS AI)</div>
+        <div class="menu-item" id="menuItem2" data-action="online">MULTIPLAYER</div>
+      </nav>
+
+      <!-- Hidden original buttons kept for JS wiring compatibility -->
+      <button class="menuButton" id="singlePlayerButton" style="display:none">1 PLAYER</button>
+      <button class="menuButton" id="localPlayerButton"  style="display:none">2 PLAYER</button>
+      <button class="menuButton" id="onlineButton"       style="display:none">MULTIPLAYER</button>
+    </div>
+
+    <!-- ── DIFFICULTY SELECT OVERLAY ────────────────────── -->
+    <div id="difficultySelect">
+      <h2 id="diffTitle">SELECT DIFFICULTY</h2>
+      <p class="diff-subtitle">How hard do you want the AI to fight?</p>
+      <div class="diff-buttons">
+        <button class="diff-btn normal-btn" id="diffNormalBtn">
+          <span class="diff-icon">🥋</span>
+          <span class="diff-name">NORMAL</span>
+          <span class="diff-desc">Slower reactions · Less aggressive</span>
+        </button>
+        <button class="diff-btn hard-btn" id="diffHardBtn">
+          <span class="diff-icon">💀</span>
+          <span class="diff-name">HARD</span>
+          <span class="diff-desc">Fast reactions · Retreats on low HP</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── CHARACTER SELECT OVERLAY ──────────────────────── -->
+    <div id="charSelectOverlay">
+
+      <h2 id="csTitle">SELECT YOUR FIGHTER</h2>
+
+      <div id="csMain">
+
+        <!-- Player 1 panel -->
+        <div class="cs-panel" id="cs-p1-panel">
+          <div class="cs-player-label p1-label">◀ PLAYER 1 ◀</div>
+          <div class="cs-controls-hint">A/D = browse &nbsp;|&nbsp; SPACE = select</div>
+
+          <div class="cs-portrait-box">
+            <img class="cs-portrait-img" id="p1Portrait" src="" alt="P1">
+          </div>
+
+          <div class="cs-char-name" id="p1SelectedName"></div>
+          <div class="cs-stats" id="p1Stats"></div>
+          <div class="cs-ready" id="p1Ready">✔ READY!</div>
+
+          <div class="cs-grid" id="p1CharGrid"></div>
+        </div>
+
+        <!-- VS badge -->
+        <div id="csVS">VS</div>
+
+        <!-- Player 2 panel -->
+        <div class="cs-panel" id="cs-p2-panel">
+          <div class="cs-player-label p2-label">▶ PLAYER 2 ▶</div>
+          <div class="cs-controls-hint">◀/▶ = browse &nbsp;|&nbsp; ENTER = select</div>
+
+          <div class="cs-portrait-box">
+            <img class="cs-portrait-img" id="p2Portrait" src="" alt="P2">
+          </div>
+
+          <div class="cs-char-name" id="p2SelectedName"></div>
+          <div class="cs-stats" id="p2Stats"></div>
+          <div class="cs-ready" id="p2Ready">✔ READY!</div>
+
+          <div class="cs-grid" id="p2CharGrid"></div>
+        </div>
+
+      </div><!-- /csMain -->
+    </div><!-- /charSelectOverlay -->
+
+    <!-- ── MAP SELECT OVERLAY ──────────────────────── -->
+    <div id="mapSelectOverlay">
+
+      <h2 id="msTitle">SELECT YOUR STAGE</h2>
+
+      <div id="msMain">
+
+        <!-- Left: map grid -->
+        <div id="msLeft">
+          <div id="msPLabels">
+            <span id="msP1Label" class="ms-player-label ms-p1-label">◄ P1: A/D + SPACE ◄</span>
+            <span id="msP2Label" class="ms-player-label ms-p2-label">▶ P2: ◀▶ + ENTER ▶</span>
+          </div>
+          <div id="msGrid"></div>
+          <div id="msPickRow">
+            <div id="msP1Pick" class="ms-pick ms-pick-p1"></div>
+            <div id="msP2Pick" class="ms-pick ms-pick-p2"></div>
+          </div>
+          <div id="msReadyRow">
+            <div id="msP1Ready" class="ms-ready ms-p1-ready">✔ P1 READY!</div>
+            <div id="msP2Ready" class="ms-ready ms-p2-ready">✔ P2 READY!</div>
+          </div>
+        </div>
+
+        <!-- Right: large preview -->
+        <div id="msRight">
+          <img id="msPreview" src="" alt="Stage Preview" draggable="false">
+          <div id="msPreviewName"></div>
+        </div>
+
+      </div><!-- /msMain -->
+    </div><!-- /mapSelectOverlay -->
+
+    <!-- ── ROUND INTRO OVERLAY ────────────────────────────── -->
+    <div id="roundIntro">
+      <div id="roundIntroText"></div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         HUD — sits over the canvas (z-index:10)
+         Position:absolute + width:100% stretches it across
+         the full 1024px canvas width.
+    ═══════════════════════════════════════════════════════════ -->
+    <div id="gameHUD">
+
+      <!-- Player 1 health section -->
+      <div class="hud-section hud-left">
+        <div class="hud-char-name" id="p1CharName">PLAYER 1</div>
+        <div class="hud-bar-row">
+          <!-- P1 Avatar -->
+          <img id="p1HudAvatar" class="hud-avatar hud-avatar-p1" src="" alt="P1">
+          <div class="health-bar-wrap" style="justify-content:flex-end;">
+            <div style="position:relative;width:100%;border-top:4px solid white;border-bottom:4px solid white;border-left:4px solid white;">
+              <!-- Red background (empty HP) -->
+              <div style="background-color:#5a0000;height:22px;width:100%;"></div>
+              <!-- Ghost health bar (orange delayed drain) -->
+              <div id="playerGhostHealth"
+                   style="position:absolute;background-color:#e06000;top:0;bottom:0;right:0;width:100%;
+                          transition:none;"></div>
+              <!-- Real health bar (blue, drains immediately) -->
+              <div id="playerHealth"
+                   style="position:absolute;background-color:#7c86ff;top:0;bottom:0;right:0;width:100%;
+                          background:linear-gradient(90deg,#5a60cc,#7c86ff);"></div>
+            </div>
+          </div>
+        </div>
+        <!-- P1 round wins (dots) -->
+        <div class="hud-wins" id="p1Wins">
+          <span class="win-dot" id="p1Dot0"></span>
+          <span class="win-dot" id="p1Dot1"></span>
+        </div>
+        <!-- P1 Controls reminder -->
+        <div class="hud-controls p1-controls">SPACE=Light &nbsp; F=Heavy &nbsp; S=Block</div>
+      </div>
+
+      <!-- Timer block -->
+      <div class="hud-center">
+        <div id="timer">60</div>
+      </div>
+
+      <!-- Player 2 health section -->
+      <div class="hud-section hud-right">
+        <div class="hud-char-name" id="p2CharName">PLAYER 2</div>
+        <div class="hud-bar-row">
+          <div class="health-bar-wrap">
+            <div style="position:relative;width:100%;border-top:4px solid white;border-bottom:4px solid white;border-right:4px solid white;">
+              <!-- Red background -->
+              <div style="background-color:#5a0000;height:22px;"></div>
+              <!-- Ghost health bar -->
+              <div id="enemyGhostHealth"
+                   style="position:absolute;background-color:#e06000;top:0;bottom:0;left:0;right:0;width:100%;
+                          transition:none;"></div>
+              <!-- Real health bar -->
+              <div id="enemyHealth"
+                   style="position:absolute;background-color:#7c86ff;top:0;bottom:0;left:0;right:0;
+                          background:linear-gradient(90deg,#cc6b5a,#ff6b6b);"></div>
+            </div>
+          </div>
+          <!-- P2 Avatar (mirrored) -->
+          <img id="p2HudAvatar" class="hud-avatar hud-avatar-p2" src="" alt="P2">
+        </div>
+        <!-- P2 round wins (dots) -->
+        <div class="hud-wins" id="p2Wins">
+          <span class="win-dot" id="p2Dot0"></span>
+          <span class="win-dot" id="p2Dot1"></span>
+        </div>
+        <!-- P2 Controls reminder -->
+        <div class="hud-controls p2-controls">Enter=Light &nbsp; /=Heavy &nbsp; ↓=Block</div>
+      </div>
+
+    </div><!-- /gameHUD -->
+
+    <!-- ── ROUND / FIGHT RESULT OVERLAYS ─────────────────── -->
+    <div id="displayTie"    class="result-overlay">TIE!</div>
+    <div id="displayPlayer" class="result-overlay">PLAYER 1 WINS!</div>
+    <div id="displayEnemy"  class="result-overlay">PLAYER 2 WINS!</div>
+    <div id="displayMatch"  class="result-overlay"></div>
+
+    <!-- Canvas -->
+    <canvas></canvas>
+
+    <!-- ── PAUSE OVERLAY ──────────────────────────────────── -->
+    <div id="pauseOverlay">
+      <div id="pauseBox">
+        <div id="pauseTitle">⏸ PAUSED</div>
+
+        <div class="pause-section-label">DEBUG OPTIONS</div>
+
+        <div class="pause-options">
+
+          <!-- Hitboxes toggle -->
+          <label class="pause-toggle-row" id="hitboxToggleRow">
+            <div class="pause-toggle-info">
+              <span class="pause-toggle-icon" style="color:#ff6622;">⚔</span>
+              <div>
+                <div class="pause-toggle-name">Show Hitboxes</div>
+                <div class="pause-toggle-desc">Attack reach area (orange)</div>
+              </div>
+            </div>
+            <div class="toggle-switch">
+              <input type="checkbox" id="showHitboxesCheck">
+              <span class="toggle-track"></span>
+            </div>
+          </label>
+
+          <!-- Hurtboxes toggle -->
+          <label class="pause-toggle-row" id="hurtboxToggleRow">
+            <div class="pause-toggle-info">
+              <span class="pause-toggle-icon" style="color:#33bbff;">🛡</span>
+              <div>
+                <div class="pause-toggle-name">Show Hurtboxes</div>
+                <div class="pause-toggle-desc">Damageable body area (blue)</div>
+              </div>
+            </div>
+            <div class="toggle-switch">
+              <input type="checkbox" id="showHurtboxesCheck">
+              <span class="toggle-track"></span>
+            </div>
+          </label>
+
+        </div>
+
+        <!-- Legend -->
+        <div class="pause-legend">
+          <div class="legend-item">
+            <div class="legend-swatch" style="background:rgba(255,102,34,0.55);border-color:#ff6622;"></div>
+            <span>Hitbox (attack)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-swatch" style="background:rgba(51,187,255,0.35);border-color:#33bbff;"></div>
+            <span>Hurtbox (body)</span>
+          </div>
+        </div>
+
+        <div class="pause-resume-hint">Press <span class="key-badge">P</span> to Resume</div>
+      </div>
+    </div>
+
+    <!-- Combo counter overlays -->
+    <div id="p1Combo" class="combo-counter p1-combo"></div>
+    <div id="p2Combo" class="combo-counter p2-combo"></div>
+
+    <!-- Online HUD badge -->
+    <div id="onlineHudBadge"></div>
+
+  </div><!-- /gameContainer -->
+
+
+  <!-- ── ONLINE LOBBY OVERLAY ─────────────────────────── -->
+  <div id="onlineMenu">
+    <!-- Step 1: choose Create or Join -->
+    <div id="onlineLobbyStep">
+      <h2 id="onlineTitle">ONLINE MULTIPLAYER</h2>
+      <p class="online-subtitle">Play over a local network or the internet</p>
+
+      <div class="online-room-actions">
+        <button class="online-btn create-btn" id="createRoomBtn">🥊 CREATE ROOM</button>
+        <div class="online-divider">— OR —</div>
+        <div class="online-join-row">
+          <input id="roomCodeInput" class="room-code-input" type="text"
+                 maxlength="4" placeholder="XXXX" autocomplete="off"
+                 spellcheck="false" />
+          <button class="online-btn join-btn" id="joinRoomBtn">JOIN</button>
+        </div>
+      </div>
+
+      <div id="onlineStatus" class="online-status"></div>
+      <button class="online-back-btn" id="onlineBackBtn">← BACK</button>
+    </div>
+
+    <!-- Step 2: waiting for opponent -->
+    <div id="onlineWaitStep" style="display:none">
+      <div id="onlineWaitTitle" class="online-wait-title"></div>
+      <div id="roomCodeDisplay" class="room-code-display"></div>
+      <div id="onlineWaitMsg" class="online-wait-msg">Waiting for opponent…</div>
+      <div class="online-spinner"></div>
+      <button class="online-back-btn" id="onlineWaitBackBtn">← CANCEL</button>
+    </div>
+  </div>
+
+  <!-- ── OPPONENT DISCONNECTED OVERLAY ────────────────── -->
+  <div id="disconnectOverlay">
+    <div class="disconnect-box">
+      <div class="disconnect-icon">📡</div>
+      <div class="disconnect-title">CONNECTION LOST</div>
+      <p class="disconnect-msg">Your opponent has disconnected.</p>
+      <button class="online-btn" id="disconnectOkBtn">BACK TO MENU</button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"
+          integrity="sha512-H6cPm97FAsgIKmlBA4s774vqoN24V5gSQL4yBTDOY2su2DeXZVhQPxFK4P6GPdnZqM9fg1G3cMv5wD7e6cFLZQ=="
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- Socket.io client (local copy from server/node_modules — no CDN needed) -->
+  <script src="js/socket.io.min.js"></script>
+
+  <script src="js/utils.js"></script>
+  <script src="js/classes.js"></script>
+  <script src="js/characters.js"></script>
+  <script src="js/sfx.js"></script>
+  <script src="js/effects.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/online.js"></script>
+  <script src="js/characterSelect.js"></script>
+  <script src="js/mapSelect.js"></script>
+  <script src="index.js"></script>
+</body>
