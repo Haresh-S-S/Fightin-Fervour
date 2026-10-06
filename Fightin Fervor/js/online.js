@@ -16,7 +16,8 @@ const ONLINE = (() => {
     if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
       return `http://${location.hostname}:3000`;
     }
-    return location.origin;
+    if (typeof window !== 'undefined' && window.MULTIPLAYER_SERVER_URL) return window.MULTIPLAYER_SERVER_URL;
+    return 'https://fightin-fervour.onrender.com';
   })();
 
   let _socket = null;
@@ -176,3 +177,4 @@ const ONLINE = (() => {
     onConnectError,
   };
 })();
+
