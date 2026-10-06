@@ -1,43 +1,31 @@
 // =========================================================
 // FIGHTIN' FERVOR — js/online.js
-// Online multiplayer module — wraps Socket.io
-//
-// Public API:
-//   ONLINE.createRoom()
-//   ONLINE.joinRoom(code)
-//   ONLINE.sendInput(frame, keysSnapshot, actions)
-//   ONLINE.sendCharSelect(p1Key, p2Key)
-//   ONLINE.sendRematch()
-//   ONLINE.disconnect()
-//   ONLINE.onRoomJoined(cb)      cb({ role, roomCode })
-//   ONLINE.onRoomNotFound(cb)
-//   ONLINE.onRoomFull(cb)
-//   ONLINE.onOpponentReady(cb)
-//   ONLINE.onOpponentInput(cb)   cb({ frame, keys, actions })
-//   ONLINE.onCharSelected(cb)    cb({ p1Key, p2Key })
-//   ONLINE.onRematch(cb)
-//   ONLINE.onOpponentDisconnected(cb)
-//   ONLINE.onConnectError(cb)    cb(errorMessage)
-//
-// The server URL is auto-detected:
-//   • If the page is served via HTTP (not file://), use same origin.
-//   • Otherwise fall back to localhost:3000.
+// Online multiplayer client module — Socket.io wrapper
 // =========================================================
 
 const ONLINE = (() => {
-  // ── Server URL detection ──────────────────────────────────────
+  // ── Auto-detect Socket.io relay server URL ──────────────────
   const SERVER_URL = (() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('server')) return urlParams.get('server');
+    } catch (e) {}
+
     if (location.protocol === 'file:') return 'http://localhost:3000';
+    if (location.port === '3000') return location.origin;
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      return `http://${location.hostname}:3000`;
+    }
     return location.origin;
   })();
 
   let _socket = null;
   let _connectErrorCb = null;
 
-  // ── Safety guard: check that socket.io CDN loaded ─────────────
+  // ── Guard: ensure socket.io is loaded ────────────────────────
   function _ioAvailable() {
     if (typeof io === 'undefined') {
-      const msg = 'Socket.io failed to load. Check your internet connection.';
+      const msg = 'Socket.io client failed to load.';
       console.error('[ONLINE]', msg);
       if (_connectErrorCb) _connectErrorCb(msg);
       return false;
@@ -45,7 +33,6 @@ const ONLINE = (() => {
     return true;
   }
 
-  // Lazy connect — only opens the WebSocket when actually needed
   function _ensureConnected() {
     if (!_ioAvailable()) return null;
     if (_socket && _socket.connected) return _socket;
@@ -60,7 +47,6 @@ const ONLINE = (() => {
       timeout: 8000,
     });
 
-    // ── Connection error handling ─────────────────────────────
     _socket.on('connect_error', (err) => {
       const msg = `Cannot reach server at ${SERVER_URL}. Is the relay server running? (${err.message})`;
       console.error('[ONLINE] connect_error:', err);
@@ -68,7 +54,7 @@ const ONLINE = (() => {
     });
 
     _socket.on('connect_timeout', () => {
-      const msg = `Connection timed out. Is the relay server running at port 3000?`;
+      const msg = `Connection timed out connecting to ${SERVER_URL}.`;
       console.error('[ONLINE] connect_timeout');
       if (_connectErrorCb) _connectErrorCb(msg);
     });
@@ -80,7 +66,6 @@ const ONLINE = (() => {
   function createRoom() {
     const s = _ensureConnected();
     if (!s) return;
-    // Wait for connection before emitting (handles cold-start)
     if (s.connected) {
       s.emit('create_room');
     } else {
@@ -91,7 +76,7 @@ const ONLINE = (() => {
   function joinRoom(code) {
     const s = _ensureConnected();
     if (!s) return;
-    const normalized = code.toUpperCase().trim();
+    const normalized = String(code).toUpperCase().trim();
     if (s.connected) {
       s.emit('join_room', { roomCode: normalized });
     } else {
@@ -99,20 +84,40 @@ const ONLINE = (() => {
     }
   }
 
-  // ── In-game communication ─────────────────────────────────────
+  // ── Character Selection ───────────────────────────────────────
+  function sendCharPick(data) {
+    if (!_socket || !_socket.connected) return;
+    _socket.emit('char_pick', data);
+  }
+
+  function sendCharSelect(p1Key, p2Key, mapPath, mapShowShop, mapMusic) {
+    if (!_socket || !_socket.connected) return;
+    _socket.emit('char_select', { p1Key, p2Key, mapPath, mapShowShop, mapMusic });
+  }
+
+  // ── In-Game Communication ─────────────────────────────────────
+  // Guest sending input state to host
+  function sendGuestInput(data) {
+    if (!_socket || !_socket.connected) return;
+    _socket.emit('guest_input', data);
+  }
+
+  // Legacy input send
   function sendInput(frame, keysSnapshot, actions) {
     if (!_socket || !_socket.connected) return;
     _socket.emit('input', { frame, keys: keysSnapshot, actions });
   }
 
-  function sendCharSelect(p1Key, p2Key) {
+  // Host broadcasting authoritative snapshot to guest
+  function sendStateSync(snapshot) {
     if (!_socket || !_socket.connected) return;
-    _socket.emit('char_select', { p1Key, p2Key });
+    _socket.emit('state_sync', snapshot);
   }
 
+  // Rematch request
   function sendRematch() {
     if (!_socket || !_socket.connected) return;
-    _socket.emit('rematch');
+    _socket.emit('rematch_request');
   }
 
   function disconnect() {
@@ -134,28 +139,38 @@ const ONLINE = (() => {
   function onRoomNotFound(cb)         { _on('room_not_found',         cb); }
   function onRoomFull(cb)             { _on('room_full',              cb); }
   function onOpponentReady(cb)        { _on('opponent_ready',         cb); }
-  function onOpponentInput(cb)        { _on('input',                  cb); }
+  function onCharPick(cb)             { _on('char_pick',              cb); }
   function onCharSelected(cb)         { _on('char_selected',          cb); }
+  function onGuestInput(cb)           { _on('guest_input',            cb); }
+  function onOpponentInput(cb)        { _on('input',                  cb); }
+  function onStateSync(cb)            { _on('state_sync',             cb); }
+  function onRematchStatus(cb)        { _on('rematch_status',         cb); }
+  function onRematchStart(cb)         { _on('rematch_start',          cb); }
   function onRematch(cb)              { _on('rematch',                cb); }
   function onOpponentDisconnected(cb) { _on('opponent_disconnected',  cb); }
-
-  // Connection error is special — stored as a callback, not a socket event
   function onConnectError(cb)         { _connectErrorCb = cb; }
 
-  // ── Public API ────────────────────────────────────────────────
   return {
     createRoom,
     joinRoom,
-    sendInput,
+    sendCharPick,
     sendCharSelect,
+    sendGuestInput,
+    sendInput,
+    sendStateSync,
     sendRematch,
     disconnect,
     onRoomJoined,
     onRoomNotFound,
     onRoomFull,
     onOpponentReady,
-    onOpponentInput,
+    onCharPick,
     onCharSelected,
+    onGuestInput,
+    onOpponentInput,
+    onStateSync,
+    onRematchStatus,
+    onRematchStart,
     onRematch,
     onOpponentDisconnected,
     onConnectError,

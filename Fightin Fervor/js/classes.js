@@ -523,7 +523,7 @@ class Fighter extends Sprite
 
     jump()
     {
-        if (this.dead || this.isDying || !this.isGrounded || this.stunFrames > 0 || this.isStaggered) return
+        if (this.dead || this.isDying || this.isVictory || !this.isGrounded || this.stunFrames > 0 || this.isStaggered) return
         this.velocity.y = -20
         this.isGrounded = false
         this.isBlocking = false
@@ -536,7 +536,7 @@ class Fighter extends Sprite
     attack()
     {
         const now = performance.now()
-        if (this.isAttacking || this.dead || this.isDying || this.stunFrames > 0 ||
+        if (this.isAttacking || this.dead || this.isDying || this.isVictory || this.stunFrames > 0 ||
             this.isStaggered || this._heavyPending) return
         // Timestamp gate — immune to the isAttacking gap created by index.js
         if (now < this.lightAttackUnlockTime) return
@@ -584,7 +584,7 @@ class Fighter extends Sprite
     heavyAttack()
     {
         const now = performance.now()
-        if (this.isAttacking || this.dead || this.isDying || this.stunFrames > 0 ||
+        if (this.isAttacking || this.dead || this.isDying || this.isVictory || this.stunFrames > 0 ||
             this.isStaggered || this._heavyPending) return
         // Timestamp gate — prevents chained heavies while cooldown is active
         if (now < this.heavyAttackUnlockTime) return
@@ -601,7 +601,7 @@ class Fighter extends Sprite
         const WINDUP_MS = 120
         setTimeout(() => {
             this._heavyPending = false
-            if (this.dead || this.isDying || this.stunFrames > 0) return
+            if (this.dead || this.isDying || this.isVictory || this.stunFrames > 0) return
 
             // Stamp attack time AFTER windup — a light attack thrown during
             // the windup will have an earlier timestamp and win priority.
@@ -635,7 +635,7 @@ class Fighter extends Sprite
     // ── Block ─────────────────────────────────────────────────────
     startBlock()
     {
-        if (this.dead || this.isDying || this.isAttacking || this.stunFrames > 0 || !this.isGrounded) return
+        if (this.dead || this.isDying || this.isVictory || this.isAttacking || this.stunFrames > 0 || !this.isGrounded) return
         this.isBlocking = true
         this.switchSprite('idle')
     }
@@ -652,7 +652,7 @@ class Fighter extends Sprite
     takehit(damage = 10, attacker = null, heavy = false)
     {
         if (this.wakeupFrames > 0) return 0
-        if (this.isDying || this.dead) return 0  // already dead, ignore hit
+        if (this.isDying || this.dead || this.isVictory) return 0  // already dead or victorious, ignore hit
 
         // ── Block ────────────────────────────────────────────────
         if (this.isBlocking && this.isGrounded) {
@@ -765,9 +765,9 @@ class Fighter extends Sprite
 
     switchSprite(sprite)
     {
-    // Dying or dead — no sprite changes allowed whatsoever.
-    // forceDeath() is the only valid path into the death animation.
-    if (this.isDying || this.dead) return
+    // Dying, dead, or in victory — no sprite changes allowed whatsoever.
+    // forceDeath() and forceVictory() are the only valid paths into those animations.
+    if (this.isDying || this.dead || this.isVictory) return
 
     if(this.image === this.sprites.death.image)
     {

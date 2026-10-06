@@ -31,20 +31,32 @@ const shop = new Sprite({
 });
 
 // ── Input state ──────────────────────────────────────────────
-// P1: A/D = move, W = jump, Space = light attack, F = heavy, S = block
-// P2: ArrowLeft/Right = move, ArrowUp = jump, Enter = light, / = heavy, ArrowDown = block
+// P1: A/D = move, W = jump, E = light attack, F = heavy, S = block
+// P2: J/L = move, I = jump, U = light attack, H = heavy, K = block
 const keys = {
+  // P1 keys
   a:          { pressed: false },
   d:          { pressed: false },
   w:          { pressed: false },
   s:          { pressed: false },   // P1 block
-  f:          { pressed: false },   // P1 heavy attack (tracked for display; actual held state)
+  e:          { pressed: false },   // P1 light attack
+  f:          { pressed: false },   // P1 heavy attack
+
+  // P2 keys
+  j:          { pressed: false },   // P2 move left
+  l:          { pressed: false },   // P2 move right
+  i:          { pressed: false },   // P2 jump
+  k:          { pressed: false },   // P2 block
+  u:          { pressed: false },   // P2 light attack
+  h:          { pressed: false },   // P2 heavy attack
+
+  // Fallback aliases (legacy arrow keys support)
   ArrowLeft:  { pressed: false },
   ArrowRight: { pressed: false },
   ArrowUp:    { pressed: false },
-  ArrowDown:  { pressed: false },   // P2 block
-  Enter:      { pressed: false },   // P2 light attack
-  Slash:      { pressed: false },   // P2 heavy attack
+  ArrowDown:  { pressed: false },
+  Enter:      { pressed: false },
+  Slash:      { pressed: false },
 };
 
 // ── Live fighter references ──────────────────────────────────
@@ -119,9 +131,13 @@ let onlineFrame     = 0;      // frame counter for input sequencing
 let opponentKeys    = {};     // most-recent key state received from opponent
 let opponentActions = {};     // one-shot actions received from opponent (buffered until next frame)
 let localActions    = {};     // one-shot actions queued from OUR keydown (cleared each frame after send)
+let onlinePendingHit = null;  // pending hit event to broadcast from host
+let lastOnlineTick   = 0;     // rate limiter for 60fps in online mode
 
 // ── Animation loop flag ──────────────────────────────────────
 let animating = false;
+let inDeathOrVictoryPhase = false; // true while death or victory animation plays out
+let roundEndHandled       = false; // guards against double round end execution
 
 // ── Pause state ───────────────────────────────────────────────
 let isPaused = false;
@@ -194,28 +210,64 @@ document.getElementById('showHurtboxesCheck').addEventListener('change', (e) => 
 // ════════════════════════════════════════════════════════════
 function showRoundIntro(roundNumber, callback) {
   const introEl = document.getElementById('roundIntro');
+  const imgEl   = document.getElementById('roundIntroImg');
   const textEl  = document.getElementById('roundIntroText');
 
+  // Play Announcer voice for Round 1, Round 2, Round 3
+  if (typeof Announcer !== 'undefined') {
+    Announcer.playRound(roundNumber);
+  }
+
+  // Determine round image based on round number
+  let roundImgSrc = './TextEffects/Round-1.png';
+  if (roundNumber === 2) roundImgSrc = './TextEffects/Round-2.png';
+  else if (roundNumber >= 3) roundImgSrc = './TextEffects/Round-3.png';
+
+  if (imgEl) {
+    imgEl.src = roundImgSrc;
+    imgEl.className = 'round-intro-img';
+  }
   introEl.classList.add('visible');
-  textEl.classList.remove('pop', 'fight-text');
-  textEl.textContent = `ROUND ${roundNumber}`;
 
-  requestAnimationFrame(() => requestAnimationFrame(() => textEl.classList.add('pop')));
+  // Smooth entrance for Round X
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (imgEl) imgEl.classList.add('pop');
+    });
+  });
 
+  // After Round display, transition to FIGHT!
   setTimeout(() => {
-    textEl.classList.remove('pop', 'fight-text');
-    textEl.textContent = 'FIGHT!';
-    textEl.classList.add('fight-text');
-
-    requestAnimationFrame(() => requestAnimationFrame(() => textEl.classList.add('pop')));
+    if (imgEl) imgEl.classList.add('fade-out');
 
     setTimeout(() => {
-      textEl.classList.remove('pop');
+      if (imgEl) {
+        imgEl.className = 'round-intro-img';
+        imgEl.src = './TextEffects/FIGHT.png';
+      }
+
+      if (typeof SFX !== 'undefined' && SFX.whoosh) {
+        SFX.whoosh(true);
+      }
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (imgEl) imgEl.classList.add('fight-pop');
+        });
+      });
+
+      // Fade out FIGHT and begin combat
       setTimeout(() => {
-        introEl.classList.remove('visible');
-        if (callback) callback();
-      }, 250);
-    }, 900);
+        if (imgEl) imgEl.classList.add('fade-out');
+        setTimeout(() => {
+          introEl.classList.remove('visible');
+          if (imgEl) imgEl.className = 'round-intro-img';
+          if (callback) callback();
+        }, 220);
+      }, 950);
+
+    }, 200);
+
   }, 1400);
 }
 
@@ -247,6 +299,8 @@ function showResult(id, text, color) {
 // ════════════════════════════════════════════════════════════
 function handleRoundEnd() {
   if (!player || !enemy) return;
+  if (roundEndHandled) return;
+  roundEndHandled = true;
 
   animating = false;
   clearTimeout(timerID);
@@ -279,18 +333,53 @@ function handleRoundEnd() {
 
   refreshWinDots();
 
+  if (isOnline && onlineRole === 'host') {
+    ONLINE.sendStateSync({
+      roundEndEvent: {
+        winner,
+        p1RoundWins,
+        p2RoundWins,
+        currentRound
+      }
+    });
+  }
+
+  if (isOnline && onlineRole === 'guest') {
+    // Guest displays result banner; round/match progression is authoritatively sent by Host
+    return;
+  }
+
   setTimeout(() => {
     hideAllResults();
 
     if (p1RoundWins >= ROUNDS_TO_WIN) {
+      if (isOnline && onlineRole === 'host') {
+        ONLINE.sendStateSync({ matchEndEvent: { winner: 1 } });
+      }
       endMatch(1);
     } else if (p2RoundWins >= ROUNDS_TO_WIN) {
+      if (isOnline && onlineRole === 'host') {
+        ONLINE.sendStateSync({ matchEndEvent: { winner: 2 } });
+      }
       endMatch(2);
     } else if (currentRound >= 3) {
-      if      (p1RoundWins > p2RoundWins) endMatch(1);
-      else if (p2RoundWins > p1RoundWins) endMatch(2);
-      else                                endMatch(0);
+      let mWinner = 0;
+      if      (p1RoundWins > p2RoundWins) mWinner = 1;
+      else if (p2RoundWins > p1RoundWins) mWinner = 2;
+      if (isOnline && onlineRole === 'host') {
+        ONLINE.sendStateSync({ matchEndEvent: { winner: mWinner } });
+      }
+      endMatch(mWinner);
     } else {
+      if (isOnline && onlineRole === 'host') {
+        ONLINE.sendStateSync({
+          startRoundEvent: {
+            p1Key: chosenP1Key,
+            p2Key: chosenP2Key,
+            currentRound: currentRound + 1
+          }
+        });
+      }
       startRound(chosenP1Key, chosenP2Key);
     }
   }, 2000);
@@ -302,35 +391,99 @@ function handleRoundEnd() {
 function endMatch(winner) {
   animating = false;
 
-  let msg, color;
+  // Play Announcer voice for match victory / defeat
+  if (typeof Announcer !== 'undefined') {
+    Announcer.playMatchEnd(winner, isSinglePlayer, isOnline, onlineRole);
+  }
+
+  // Determine winner image and fallback info
+  let winnerImgSrc = null;
+  let msg = '';
+  let color = 'white';
+
   if (winner === 1) {
-    if (isSinglePlayer)                              { msg = 'YOU WIN THE MATCH! 🏆'; }
-    else if (isOnline && onlineRole === 'host')      { msg = 'YOU WIN THE MATCH! 🏆'; }
-    else if (isOnline && onlineRole === 'guest')     { msg = 'OPPONENT WINS THE MATCH!'; }
-    else                                             { msg = 'PLAYER 1 WINS THE MATCH!'; }
-    color = '#7c86ff';
+    if (!isSinglePlayer && !isOnline) {
+      // 2 Player Local: Player 1 wins
+      winnerImgSrc = './TextEffects/Player-1-Wins.png';
+      msg = 'PLAYER 1 WINS THE MATCH!';
+      color = '#7c86ff';
+    } else if (isSinglePlayer) {
+      // Singleplayer: Human player (P1) wins
+      winnerImgSrc = './TextEffects/YOU-WON.png';
+      msg = 'YOU WIN THE MATCH! 🏆';
+      color = '#7c86ff';
+    } else if (isOnline && onlineRole === 'host') {
+      // Online Host (P1) wins
+      winnerImgSrc = './TextEffects/YOU-WON.png';
+      msg = 'YOU WIN THE MATCH! 🏆';
+      color = '#7c86ff';
+    } else if (isOnline && onlineRole === 'guest') {
+      // Online Guest (P2) loses
+      winnerImgSrc = './TextEffects/YOU-LOSE.png';
+      msg = 'OPPONENT WINS THE MATCH!';
+      color = '#ff6b6b';
+    }
   } else if (winner === 2) {
-    if (isSinglePlayer)                              { msg = 'AI WINS THE MATCH...'; }
-    else if (isOnline && onlineRole === 'guest')     { msg = 'YOU WIN THE MATCH! 🏆'; }
-    else if (isOnline && onlineRole === 'host')      { msg = 'OPPONENT WINS THE MATCH!'; }
-    else                                             { msg = 'PLAYER 2 WINS THE MATCH!'; }
-    color = '#ff6b6b';
+    if (!isSinglePlayer && !isOnline) {
+      // 2 Player Local: Player 2 wins
+      winnerImgSrc = './TextEffects/Player-2.png';
+      msg = 'PLAYER 2 WINS THE MATCH!';
+      color = '#ff6b6b';
+    } else if (isSinglePlayer) {
+      // Singleplayer: AI wins -> human player loses
+      winnerImgSrc = './TextEffects/YOU-LOSE.png';
+      msg = 'AI WINS THE MATCH...';
+      color = '#ff6b6b';
+    } else if (isOnline && onlineRole === 'guest') {
+      // Online Guest (P2) wins
+      winnerImgSrc = './TextEffects/YOU-WON.png';
+      msg = 'YOU WIN THE MATCH! 🏆';
+      color = '#7c86ff';
+    } else if (isOnline && onlineRole === 'host') {
+      // Online Host (P1) loses
+      winnerImgSrc = './TextEffects/YOU-LOSE.png';
+      msg = 'OPPONENT WINS THE MATCH!';
+      color = '#ff6b6b';
+    }
   } else {
+    // Draw / Tie
     msg   = 'DRAW — NO WINNER!';
     color = 'white';
   }
 
-  showResult('displayMatch', msg, color);
-  // Show hints after a brief moment
-  setTimeout(() => {
-    const el = document.getElementById('displayMatch');
-    if (el) {
-      el.innerHTML =
-        `<span style="font-size:1em">${msg}</span>` +
-        `<span style="font-size:0.45em;margin-top:10px;opacity:0.85">Press R to rematch</span>` +
-        `<span style="font-size:0.38em;margin-top:6px;opacity:0.7">Press M for Main Menu</span>`;
+  const matchEl  = document.getElementById('displayMatch');
+  const imgEl    = document.getElementById('matchWinnerImg');
+  const textEl   = document.getElementById('matchWinnerText');
+  const hintsEl  = document.getElementById('matchHints');
+
+  matchEl.style.display = 'flex';
+  if (hintsEl) hintsEl.classList.remove('visible');
+
+  if (winnerImgSrc && imgEl) {
+    imgEl.src = winnerImgSrc;
+    imgEl.style.display = 'block';
+    imgEl.className = 'match-winner-img';
+    if (textEl) textEl.style.display = 'none';
+
+    // Smooth pop entrance
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        imgEl.classList.add('pop');
+      });
+    });
+  } else {
+    if (imgEl) imgEl.style.display = 'none';
+    if (textEl) {
+      textEl.textContent = msg;
+      textEl.style.color = color;
+      textEl.style.display = 'block';
     }
-  }, 2000);
+  }
+
+  // Smooth appearance of rematch / menu hints after a brief moment
+  setTimeout(() => {
+    if (hintsEl) hintsEl.classList.add('visible');
+  }, 1200);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -338,6 +491,8 @@ function endMatch(winner) {
 // ════════════════════════════════════════════════════════════
 function startRound(p1Key, p2Key) {
   currentRound++;
+  inDeathOrVictoryPhase = false;
+  roundEndHandled       = false;
   hideAllResults();
 
   gsap.set('#playerHealth', { width: '100%' });
@@ -377,7 +532,9 @@ function startRound(p1Key, p2Key) {
 
   showRoundIntro(currentRound, () => {
     animating = true;
-    startTimer();
+    if (!isOnline || onlineRole === 'host') {
+      startTimer();
+    }
     requestAnimationFrame(animate);
   });
 }
@@ -394,9 +551,11 @@ function startMatch(p1Key, p2Key, difficulty, mapPath, showShop, musicPath) {
   chosenMapPath     = mapPath    || './images/background.png';
   chosenMapShowShop = (showShop === undefined || showShop === null) ? true : !!showShop;
   chosenMapMusic    = musicPath  || (typeof BGM !== 'undefined' ? BGM.getMusicForMap(chosenMapPath) : './BackgroundMusic/OakForest.m4a');
-  currentRound   = 0;
-  p1RoundWins    = 0;
-  p2RoundWins    = 0;
+  currentRound          = 0;
+  p1RoundWins           = 0;
+  p2RoundWins           = 0;
+  inDeathOrVictoryPhase = false;
+  roundEndHandled       = false;
 
   if (typeof BGM !== 'undefined') {
     BGM.playStage(chosenMapMusic);
@@ -421,6 +580,20 @@ function processHit(attacker, target, healthBarId, ghostWhich, isHeavy) {
 
   const wasBlocked = (result < 0);
   const actualDmg  = Math.abs(result);
+
+  if (isOnline) {
+    onlinePendingHit = {
+      attacker: attacker === player ? 'p1' : 'p2',
+      target:   target === player   ? 'p1' : 'p2',
+      dmg: actualDmg,
+      isHeavy: isHeavy,
+      wasBlocked: wasBlocked,
+      inKnockdown: !!target.inKnockdown,
+      targetHealth: target.health,
+      attackerHealth: attacker.health,
+      hitstopFrames: isHeavy ? 10 : 6,
+    };
+  }
 
   // Attacker hitstop — both freeze together (only if not a launcher, which sets its own)
   if (!target.inKnockdown) {
@@ -471,12 +644,91 @@ function processHit(attacker, target, healthBarId, ghostWhich, isHeavy) {
   if (timer <= 10) timerEl?.classList.add('timer-danger');
 }
 
+// ── Host State Sync Broadcast ────────────────────────────────
+function sendHostStateSnapshot() {
+  if (!isOnline || onlineRole !== 'host' || !player || !enemy) return;
+  ONLINE.sendStateSync({
+    frame: onlineFrame++,
+    timer: timer,
+    p1: {
+      x: Math.round(player.position.x),
+      y: Math.round(player.position.y),
+      vx: Math.round(player.velocity.x),
+      vy: Math.round(player.velocity.y),
+      h: player.health,
+      f: player.facing,
+      b: player.isBlocking,
+      att: player.isAttacking,
+      hvy: player.isHeavyAttacking,
+      anim: getFighterSprite(player),
+      fr: player.framescurrent,
+      dead: player.dead,
+      dying: player.isDying,
+      vic: player.isVictory
+    },
+    p2: {
+      x: Math.round(enemy.position.x),
+      y: Math.round(enemy.position.y),
+      vx: Math.round(enemy.velocity.x),
+      vy: Math.round(enemy.velocity.y),
+      h: enemy.health,
+      f: enemy.facing,
+      b: enemy.isBlocking,
+      att: enemy.isAttacking,
+      hvy: enemy.isHeavyAttacking,
+      anim: getFighterSprite(enemy),
+      fr: enemy.framescurrent,
+      dead: enemy.dead,
+      dying: enemy.isDying,
+      vic: enemy.isVictory
+    },
+    hit: onlinePendingHit
+  });
+  onlinePendingHit = null;
+}
+
+// ── Shared Transition into Death & Victory Sequence ───────────
+function triggerDeathAndVictorySequence() {
+  if (inDeathOrVictoryPhase) return;
+  inDeathOrVictoryPhase = true;
+  animating = false;
+  clearTimeout(timerID);
+
+  Object.values(keys).forEach(k => k.pressed = false);
+  localActions    = {};
+  opponentActions = {};
+
+  if (player) {
+    player.isAttacking      = false;
+    player.isHeavyAttacking = false;
+    if (player.health <= 0 && !player.isDying && !player.dead) {
+      player.forceDeath();
+    }
+  }
+  if (enemy) {
+    enemy.isAttacking      = false;
+    enemy.isHeavyAttacking = false;
+    if (enemy.health <= 0 && !enemy.isDying && !enemy.dead) {
+      enemy.forceDeath();
+    }
+  }
+
+  waitForDeathThenEnd();
+}
+
 // ════════════════════════════════════════════════════════════
 // MAIN ANIMATION LOOP
 // ════════════════════════════════════════════════════════════
 function animate() {
   if (!animating) return;
   requestAnimationFrame(animate);
+
+  // Rate limiter for online mode to prevent high-refresh monitor desync
+  if (isOnline) {
+    const now = performance.now();
+    if (now - lastOnlineTick < 14) return;
+    lastOnlineTick = now;
+  }
 
   c.fillStyle = 'black';
   c.fillRect(0, 0, canvas.width, canvas.height);
@@ -508,24 +760,11 @@ function animate() {
   enemy.velocity.x  = 0;
 
   // ── Determine local vs remote fighter references ───────────
-  // In online mode:
-  //   host  → controls player (P1), opponent drives enemy (P2)
-  //   guest → controls enemy  (P2), opponent drives player (P1)
   const localFighter  = isOnline && onlineRole === 'guest' ? enemy  : player;
   const remoteFighter = isOnline && onlineRole === 'guest' ? player : enemy;
 
   // ── Local player movement ─────────────────────────────────
-  // Key mappings:
-  //   Online host  → same as local P1 (WASD + Space/F/S)
-  //   Online guest → reuse P1 keys for their own fighter
-  //   Local 2P     → same as before (WASD for P1, Arrows for P2)
-  const lk = isOnline
-    ? { left: keys.a, right: keys.d, block: keys.s }  // guest reuses P1 keys
-    : (onlineRole === 'host' || !isOnline)
-      ? { left: keys.a, right: keys.d, block: keys.s }
-      : { left: keys.a, right: keys.d, block: keys.s };
-
-  if (!localFighter.stunFrames && !localFighter.isStaggered) {
+  if (!localFighter.stunFrames && !localFighter.isStaggered && !localFighter.dead && !localFighter.isDying && !localFighter.isVictory && !inDeathOrVictoryPhase) {
     if (keys.s.pressed && localFighter.isGrounded && !localFighter.isAttacking) {
       localFighter.startBlock();
     } else {
@@ -546,44 +785,105 @@ function animate() {
   if      (localFighter.velocity.y < 0 && !isMidTakehit(localFighter)) localFighter.switchSprite('jump');
   else if (localFighter.velocity.y > 0 && !isMidTakehit(localFighter)) localFighter.switchSprite('fall');
 
-  // ── Send local inputs to server (online mode) ─────────────
   if (isOnline) {
-    const keysSnapshot = {
-      a: keys.a.pressed, d: keys.d.pressed, s: keys.s.pressed,
-    };
-    // Send OUR key state + any queued one-shot actions (jump/attack/heavy)
-    ONLINE.sendInput(onlineFrame++, keysSnapshot, { ...localActions });
-    localActions = {};  // clear after sending
-
-    // Apply received opponent inputs to the remote fighter
-    if (!remoteFighter.stunFrames && !remoteFighter.isStaggered) {
-      if (opponentKeys.s && remoteFighter.isGrounded && !remoteFighter.isAttacking) {
-        remoteFighter.startBlock();
-      } else {
-        remoteFighter.stopBlock();
-        if (opponentKeys.a && remoteFighter.lastkey === 'a') {
-          remoteFighter.velocity.x = -remoteFighter.speed;
-          remoteFighter.switchSprite('run');
-        } else if (opponentKeys.d && remoteFighter.lastkey === 'd') {
-          remoteFighter.velocity.x = remoteFighter.speed;
-          remoteFighter.switchSprite('run');
+    if (onlineRole === 'host') {
+      // ── Host authority: apply guest inputs to enemy ─────────────
+      if (!enemy.stunFrames && !enemy.isStaggered && !enemy.dead && !enemy.isDying && !enemy.isVictory && !inDeathOrVictoryPhase) {
+        if (opponentKeys.s && enemy.isGrounded && !enemy.isAttacking) {
+          enemy.startBlock();
         } else {
-          remoteFighter.switchSprite('idle');
+          enemy.stopBlock();
+          if (opponentKeys.a && opponentKeys.lastkey === 'a') {
+            enemy.velocity.x = -enemy.speed;
+            enemy.switchSprite('run');
+          } else if (opponentKeys.d && opponentKeys.lastkey === 'd') {
+            enemy.velocity.x = enemy.speed;
+            enemy.switchSprite('run');
+          } else {
+            enemy.switchSprite('idle');
+          }
         }
+      } else {
+        enemy.stopBlock();
       }
+
+      if (!inDeathOrVictoryPhase && !enemy.dead && !enemy.isDying && !enemy.isVictory && enemy.health > 0 && player.health > 0) {
+        if (opponentActions.jump)   enemy.jump();
+        if (opponentActions.attack) enemy.attack();
+        if (opponentActions.heavy)  enemy.heavyAttack();
+      }
+      opponentActions = {};
+
+      if (enemy.velocity.y < 0 && !isMidTakehit(enemy)) enemy.switchSprite('jump');
+      else if (enemy.velocity.y > 0 && !isMidTakehit(enemy)) enemy.switchSprite('fall');
+
+      // ── Host collision detection ────────────────────────────────
+      const p1WouldHit = player.isAttacking &&
+        player.framescurrent === player.attackImpactFrame &&
+        rectangularCollision({ rectangle1: player, rectangle2: enemy });
+      const p2WouldHit = enemy.isAttacking &&
+        enemy.framescurrent === enemy.attackImpactFrame &&
+        rectangularCollision({ rectangle1: enemy, rectangle2: player });
+
+      if (p1WouldHit && p2WouldHit) {
+        if (player.attackStartTime <= enemy.attackStartTime) {
+          processHit(player, enemy, 'enemyHealth', 'p2', player.isHeavyAttacking);
+        } else {
+          processHit(enemy, player, 'playerHealth', 'p1', enemy.isHeavyAttacking);
+        }
+      } else {
+        if (p1WouldHit) processHit(player, enemy, 'enemyHealth', 'p2', player.isHeavyAttacking);
+        if (p2WouldHit) processHit(enemy, player, 'playerHealth', 'p1', enemy.isHeavyAttacking);
+      }
+
+      if (player.isAttacking && player.framescurrent === player.attackImpactFrame) {
+        player.isAttacking = false;
+      }
+      if (enemy.isAttacking && enemy.framescurrent === enemy.attackImpactFrame) {
+        enemy.isAttacking = false;
+      }
+
+      // Broadcast authoritative state to guest
+      sendHostStateSnapshot();
+
+      // Host round end check
+      if ((enemy.health <= 0 || player.health <= 0) && animating) {
+        triggerDeathAndVictorySequence();
+      }
+
     } else {
-      remoteFighter.stopBlock();
+      // ── Guest role: send local inputs to host ──────────────────
+      const canAct = !inDeathOrVictoryPhase &&
+                     enemy.health > 0 && player.health > 0 &&
+                     !enemy.isVictory && !player.isVictory &&
+                     !enemy.isDying && !player.isDying &&
+                     !enemy.dead && !player.dead;
+      if (!canAct) {
+        localActions = {};
+      }
+      ONLINE.sendGuestInput({
+        keys: {
+          a: canAct ? keys.a.pressed : false,
+          d: canAct ? keys.d.pressed : false,
+          s: canAct ? keys.s.pressed : false,
+          lastkey: enemy.lastkey
+        },
+        actions: { ...localActions }
+      });
+      localActions = {};
+
+      if (enemy.isAttacking && enemy.framescurrent === enemy.attackImpactFrame) {
+        enemy.isAttacking = false;
+      }
+      if (player.isAttacking && player.framescurrent === player.attackImpactFrame) {
+        player.isAttacking = false;
+      }
+
+      // Guest round end check
+      if ((enemy.health <= 0 || player.health <= 0) && animating) {
+        triggerDeathAndVictorySequence();
+      }
     }
-
-    // Apply one-shot actions buffered from opponent input events
-    if (opponentActions.jump)       { remoteFighter.jump();        }
-    if (opponentActions.attack)     { remoteFighter.attack();      }
-    if (opponentActions.heavy)      { remoteFighter.heavyAttack(); }
-    // Clear consumed one-shot actions
-    opponentActions = {};
-
-    if (remoteFighter.velocity.y < 0 && !isMidTakehit(remoteFighter)) remoteFighter.switchSprite('jump');
-    else if (remoteFighter.velocity.y > 0 && !isMidTakehit(remoteFighter)) remoteFighter.switchSprite('fall');
 
   } else if (isSinglePlayer) {
     // ── AI movement ────────────────────────────────────────
@@ -591,17 +891,49 @@ function animate() {
     if (enemy.velocity.y < 0 && !isMidTakehit(enemy)) enemy.switchSprite('jump');
     else if (enemy.velocity.y > 0 && !isMidTakehit(enemy)) enemy.switchSprite('fall');
 
+    // ── Collision: priority system ─────────────────────────
+    const p1WouldHit = player.isAttacking &&
+      player.framescurrent === player.attackImpactFrame &&
+      rectangularCollision({ rectangle1: player, rectangle2: enemy });
+    const p2WouldHit = enemy.isAttacking &&
+      enemy.framescurrent === enemy.attackImpactFrame &&
+      rectangularCollision({ rectangle1: enemy, rectangle2: player });
+
+    if (p1WouldHit && p2WouldHit) {
+      if (player.attackStartTime <= enemy.attackStartTime) {
+        processHit(player, enemy, 'enemyHealth', 'p2', player.isHeavyAttacking);
+      } else {
+        processHit(enemy, player, 'playerHealth', 'p1', enemy.isHeavyAttacking);
+      }
+    } else {
+      if (p1WouldHit) processHit(player, enemy, 'enemyHealth', 'p2', player.isHeavyAttacking);
+      if (p2WouldHit) processHit(enemy, player, 'playerHealth', 'p1', enemy.isHeavyAttacking);
+    }
+
+    if (player.isAttacking && player.framescurrent === player.attackImpactFrame) {
+      player.isAttacking = false;
+    }
+    if (enemy.isAttacking && enemy.framescurrent === enemy.attackImpactFrame) {
+      enemy.isAttacking = false;
+    }
+
+    if ((enemy.health <= 0 || player.health <= 0) && animating) {
+      animating = false;
+      clearTimeout(timerID);
+      waitForDeathThenEnd();
+    }
+
   } else {
     // ── Local 2P movement ─────────────────────────────────
     if (!enemy.stunFrames && !enemy.isStaggered) {
-      if (keys.ArrowDown.pressed && enemy.isGrounded && !enemy.isAttacking) {
+      if ((keys.k.pressed || keys.ArrowDown.pressed) && enemy.isGrounded && !enemy.isAttacking) {
         enemy.startBlock();
       } else {
         enemy.stopBlock();
-        if (keys.ArrowLeft.pressed && enemy.lastkey === 'ArrowLeft') {
+        if ((keys.j.pressed || keys.ArrowLeft.pressed) && (enemy.lastkey === 'j' || enemy.lastkey === 'ArrowLeft')) {
           enemy.velocity.x = -enemy.speed;
           enemy.switchSprite('run');
-        } else if (keys.ArrowRight.pressed && enemy.lastkey === 'ArrowRight') {
+        } else if ((keys.l.pressed || keys.ArrowRight.pressed) && (enemy.lastkey === 'l' || enemy.lastkey === 'ArrowRight')) {
           enemy.velocity.x = enemy.speed;
           enemy.switchSprite('run');
         } else {
@@ -613,44 +945,38 @@ function animate() {
     }
     if (enemy.velocity.y < 0 && !isMidTakehit(enemy)) enemy.switchSprite('jump');
     else if (enemy.velocity.y > 0 && !isMidTakehit(enemy)) enemy.switchSprite('fall');
-  }
 
-  // ── Collision: priority system — prevents trading ────────────────────
-  // If both fighters land on the same impact frame, only the one who
-  // started their attack FIRST (earlier attackStartTime) connects.
-  // The later attacker’s hit is suppressed for this frame.
-  const p1WouldHit = player.isAttacking &&
-    player.framescurrent === player.attackImpactFrame &&
-    rectangularCollision({ rectangle1: player, rectangle2: enemy });
-  const p2WouldHit = enemy.isAttacking &&
-    enemy.framescurrent === enemy.attackImpactFrame &&
-    rectangularCollision({ rectangle1: enemy, rectangle2: player });
+    // ── Collision: priority system ─────────────────────────
+    const p1WouldHit = player.isAttacking &&
+      player.framescurrent === player.attackImpactFrame &&
+      rectangularCollision({ rectangle1: player, rectangle2: enemy });
+    const p2WouldHit = enemy.isAttacking &&
+      enemy.framescurrent === enemy.attackImpactFrame &&
+      rectangularCollision({ rectangle1: enemy, rectangle2: player });
 
-  if (p1WouldHit && p2WouldHit) {
-    // Simultaneous hit — earlier attacker wins
-    if (player.attackStartTime <= enemy.attackStartTime) {
-      processHit(player, enemy, 'enemyHealth', 'p2', player.isHeavyAttacking);
+    if (p1WouldHit && p2WouldHit) {
+      if (player.attackStartTime <= enemy.attackStartTime) {
+        processHit(player, enemy, 'enemyHealth', 'p2', player.isHeavyAttacking);
+      } else {
+        processHit(enemy, player, 'playerHealth', 'p1', enemy.isHeavyAttacking);
+      }
     } else {
-      processHit(enemy, player, 'playerHealth', 'p1', enemy.isHeavyAttacking);
+      if (p1WouldHit) processHit(player, enemy, 'enemyHealth', 'p2', player.isHeavyAttacking);
+      if (p2WouldHit) processHit(enemy, player, 'playerHealth', 'p1', enemy.isHeavyAttacking);
     }
-  } else {
-    if (p1WouldHit) processHit(player, enemy, 'enemyHealth', 'p2', player.isHeavyAttacking);
-    if (p2WouldHit) processHit(enemy, player, 'playerHealth', 'p1', enemy.isHeavyAttacking);
-  }
 
-  // Clear impact-frame flag after processing (whether hit landed or not)
-  if (player.isAttacking && player.framescurrent === player.attackImpactFrame) {
-    player.isAttacking = false;
-  }
-  if (enemy.isAttacking && enemy.framescurrent === enemy.attackImpactFrame) {
-    enemy.isAttacking = false;
-  }
+    if (player.isAttacking && player.framescurrent === player.attackImpactFrame) {
+      player.isAttacking = false;
+    }
+    if (enemy.isAttacking && enemy.framescurrent === enemy.attackImpactFrame) {
+      enemy.isAttacking = false;
+    }
 
-  // ── Round end check — wait for death animation before result ──
-  if ((enemy.health <= 0 || player.health <= 0) && animating) {
-    animating = false;
-    clearTimeout(timerID);
-    waitForDeathThenEnd();
+    if ((enemy.health <= 0 || player.health <= 0) && animating) {
+      animating = false;
+      clearTimeout(timerID);
+      waitForDeathThenEnd();
+    }
   }
 } // end animate()
 
@@ -665,6 +991,195 @@ function isMidTakehit(fighter) {
   return fighter.sprites &&
     fighter.image === fighter.sprites.takehit.image &&
     fighter.framescurrent < fighter.sprites.takehit.framesmax - 1;
+}
+
+function getFighterSprite(fighter) {
+  if (!fighter || !fighter.sprites) return 'idle';
+  for (const name in fighter.sprites) {
+    if (fighter.sprites[name] && fighter.image === fighter.sprites[name].image) {
+      return name;
+    }
+  }
+  return 'idle';
+}
+
+function applyRemoteHit(hit) {
+  if (!hit) return;
+  const attacker = hit.attacker === 'p1' ? player : enemy;
+  const target   = hit.target === 'p1'   ? player : enemy;
+  if (!attacker || !target) return;
+
+  if (typeof FX !== 'undefined') {
+    const effectHeavy = hit.isHeavy || hit.inKnockdown;
+    FX.onHit(attacker, target, hit.dmg, effectHeavy, hit.wasBlocked);
+    if (hit.inKnockdown) FX.shake(16, 16);
+  }
+
+  attacker.hitstopFrames = hit.hitstopFrames || (hit.isHeavy ? 10 : 6);
+
+  if (hit.target === 'p1') {
+    player.health = hit.targetHealth;
+    const pct = (player.health / player.maxHealth) * 100;
+    gsap.to('#playerHealth', { width: pct + '%', duration: 0.12 });
+    updateGhostHealth('p1', pct);
+    const barEl = document.getElementById('playerHealth');
+    if (barEl && !hit.wasBlocked) {
+      barEl.classList.add('hp-hit-flash');
+      setTimeout(() => barEl.classList.remove('hp-hit-flash'), 180);
+    }
+  } else {
+    enemy.health = hit.targetHealth;
+    const pct = (enemy.health / enemy.maxHealth) * 100;
+    gsap.to('#enemyHealth', { width: pct + '%', duration: 0.12 });
+    updateGhostHealth('p2', pct);
+    const barEl = document.getElementById('enemyHealth');
+    if (barEl && !hit.wasBlocked) {
+      barEl.classList.add('hp-hit-flash');
+      setTimeout(() => barEl.classList.remove('hp-hit-flash'), 180);
+    }
+  }
+}
+
+function handleGuestStateSync(state) {
+  if (!state) return;
+
+  if (state.roundEndEvent) {
+    const ev = state.roundEndEvent;
+    p1RoundWins     = ev.p1RoundWins;
+    p2RoundWins     = ev.p2RoundWins;
+    currentRound    = ev.currentRound;
+    animating       = false;
+    clearTimeout(timerID);
+    roundEndHandled = true;
+    if (ev.winner === 1) {
+      showResult('displayPlayer', `OPPONENT WINS ROUND ${currentRound}!`, '#7c86ff');
+    } else if (ev.winner === 2) {
+      showResult('displayEnemy', `YOU WIN ROUND ${currentRound}!`, '#ff6b6b');
+    } else {
+      showResult('displayTie', `ROUND ${currentRound} — TIE!`, 'white');
+    }
+    refreshWinDots();
+    return;
+  }
+
+  if (state.startRoundEvent) {
+    hideAllResults();
+    startRound(state.startRoundEvent.p1Key, state.startRoundEvent.p2Key);
+    return;
+  }
+
+  if (state.matchEndEvent) {
+    hideAllResults();
+    endMatch(state.matchEndEvent.winner);
+    return;
+  }
+
+  if (!player || !enemy) return;
+
+  // 1. Host (player) sync
+  if (state.p1) {
+    const p1 = state.p1;
+    const dx = p1.x - player.position.x;
+    if (Math.abs(dx) > 35) {
+      player.position.x = p1.x;
+    } else {
+      player.position.x += dx * 0.45;
+    }
+    player.position.y = p1.y;
+    player.velocity.x = p1.vx;
+    player.velocity.y = p1.vy;
+    player.facing     = p1.f;
+    player.health     = p1.h;
+
+    if (p1.vic) {
+      if (!player.isVictory) player.forceVictory();
+      if (typeof p1.fr === 'number') player.framescurrent = p1.fr;
+    } else if (p1.dying) {
+      if (!player.isDying && !player.dead) player.forceDeath();
+      if (typeof p1.fr === 'number') player.framescurrent = p1.fr;
+    } else if (p1.anim && getFighterSprite(player) !== p1.anim && !player.isVictory && !player.isDying && !player.dead) {
+      player.switchSprite(p1.anim);
+      if (typeof p1.fr === 'number') player.framescurrent = p1.fr;
+    }
+    if (p1.dead) {
+      player.dead    = true;
+      player.isDying = false;
+    }
+  }
+
+  // 2. Guest local fighter (enemy) sync
+  if (state.p2) {
+    const p2 = state.p2;
+    const dx = p2.x - enemy.position.x;
+    if (Math.abs(dx) > 40) {
+      enemy.position.x = p2.x;
+    } else if (Math.abs(dx) > 6) {
+      enemy.position.x += dx * 0.2;
+    }
+    if (p2.dying || enemy.inKnockdown) {
+      enemy.position.y = p2.y;
+    }
+    enemy.health = p2.h;
+
+    if (p2.vic) {
+      if (!enemy.isVictory) enemy.forceVictory();
+      if (typeof p2.fr === 'number') enemy.framescurrent = p2.fr;
+    } else if (p2.dying) {
+      if (!enemy.isDying && !enemy.dead) enemy.forceDeath();
+      if (typeof p2.fr === 'number') enemy.framescurrent = p2.fr;
+    } else if (p2.anim && getFighterSprite(enemy) !== p2.anim && !enemy.isVictory && !enemy.isDying && !enemy.dead) {
+      enemy.switchSprite(p2.anim);
+      if (typeof p2.fr === 'number') enemy.framescurrent = p2.fr;
+    }
+    if (p2.dead) {
+      enemy.dead    = true;
+      enemy.isDying = false;
+    }
+  }
+
+  // 3. Health bars update
+  const p1Pct = (player.health / player.maxHealth) * 100;
+  const p2Pct = (enemy.health  / enemy.maxHealth)  * 100;
+  gsap.set('#playerHealth', { width: p1Pct + '%' });
+  gsap.set('#enemyHealth',  { width: p2Pct + '%' });
+
+  // 4. Timer sync
+  const timerEl = document.querySelector('#timer');
+  if (timerEl && typeof state.timer === 'number') {
+    timer = state.timer;
+    timerEl.innerHTML = state.timer;
+    if (state.timer <= 10) timerEl.classList.add('timer-danger');
+    else timerEl.classList.remove('timer-danger');
+  }
+
+  // 5. Hit processing on guest
+  if (state.hit) {
+    applyRemoteHit(state.hit);
+  }
+
+  // 6. Transition to death & victory sequence on Guest if not already active
+  const roundEnded = (player.health <= 0 || enemy.health <= 0) ||
+                     (state.p1 && (state.p1.dying || state.p1.dead || state.p1.vic)) ||
+                     (state.p2 && (state.p2.dying || state.p2.dead || state.p2.vic));
+  if (roundEnded && !inDeathOrVictoryPhase) {
+    triggerDeathAndVictorySequence();
+  }
+}
+
+function setRematchStatusText(requested) {
+  let el = document.getElementById('onlineRematchHint');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'onlineRematchHint';
+    el.style.cssText = 'color: #ffd700; font-weight: bold; margin-top: 8px; font-size: 15px; text-shadow: 0 0 8px rgba(255,215,0,0.6);';
+    document.getElementById('matchHints')?.appendChild(el);
+  }
+  if (requested) {
+    el.textContent = '✔ REMATCH REQUESTED (WAITING FOR OPPONENT...)';
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -749,6 +1264,14 @@ function _drawFrame() {
   if (typeof FX !== 'undefined') FX.update(c, player, enemy);
   player.update();
   enemy.update();
+
+  if (isOnline && onlineRole === 'host') {
+    const now = performance.now();
+    if (now - lastOnlineTick >= 14) {
+      lastOnlineTick = now;
+      sendHostStateSnapshot();
+    }
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -761,6 +1284,9 @@ window.addEventListener('keydown', (event) => {
 
   // ── P = Pause / Resume ────────────────────────────────────
   if (event.key === 'p' || event.key === 'P') {
+    // Disable pause during online multiplayer to prevent desync
+    if (isOnline) return;
+
     // Only active during a live match (player & enemy exist)
     if (player && enemy) {
       if (isPaused) resumeGame();
@@ -772,12 +1298,15 @@ window.addEventListener('keydown', (event) => {
   // Rematch from match-over screen
   if (event.key === 'r' || event.key === 'R') {
     const matchEl = document.getElementById('displayMatch');
-    if (matchEl.style.display === 'flex') {
-      hideAllResults();
+    if (matchEl && matchEl.style.display === 'flex') {
       if (isOnline) {
         ONLINE.sendRematch();
-        // Wait for opponent's rematch echo (handled in onRematch listener)
-      } else if (isSinglePlayer) {
+        setRematchStatusText(true);
+        return;
+      }
+      if (typeof Announcer !== 'undefined') Announcer.stop();
+      hideAllResults();
+      if (isSinglePlayer) {
         if (typeof BGM !== 'undefined') BGM.playMenu();
         showDifficultySelect();
       } else {
@@ -792,6 +1321,7 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'm' || event.key === 'M') {
     const matchEl = document.getElementById('displayMatch');
     if (matchEl && matchEl.style.display === 'flex') {
+      if (typeof Announcer !== 'undefined') Announcer.stop();
       hideAllResults();
       isOnline   = false;
       onlineRole = null;
@@ -803,23 +1333,25 @@ window.addEventListener('keydown', (event) => {
     }
   }
 
-  if (!player || !enemy || !animating) return;
+  if (!player || !enemy || !animating || inDeathOrVictoryPhase) return;
+  if (player.health <= 0 || enemy.health <= 0 || player.dead || player.isDying || player.isVictory || enemy.dead || enemy.isDying || enemy.isVictory) return;
 
   // In online mode, each player only controls their own fighter.
   // Guest uses WASD/Space/F/S keys mapped to the enemy fighter.
   const localFighter = isOnline && onlineRole === 'guest' ? enemy : player;
 
   // ── Local fighter control ──────────────────────────────
-  if (!localFighter.dead) {
+  if (!localFighter.dead && !localFighter.isDying && !localFighter.isVictory) {
     switch (event.key) {
-      case 'd': keys.d.pressed = true; localFighter.lastkey = 'd'; break;
-      case 'a': keys.a.pressed = true; localFighter.lastkey = 'a'; break;
-      case 'w':
+      case 'd': case 'D': keys.d.pressed = true; localFighter.lastkey = 'd'; break;
+      case 'a': case 'A': keys.a.pressed = true; localFighter.lastkey = 'a'; break;
+      case 'w': case 'W':
         localFighter.jump();
         if (isOnline) localActions.jump = true;
         break;
-      case 's': keys.s.pressed = true; break;
-      case ' ':
+      case 's': case 'S': keys.s.pressed = true; break;
+      case 'e': case 'E':
+      case ' ': // legacy alias
         localFighter.attack();
         if (isOnline) localActions.attack = true;
         break;
@@ -830,27 +1362,73 @@ window.addEventListener('keydown', (event) => {
     }
   }
 
-  // ── Player 2 (local 2P only) ───────────────────────────
-  if (!isOnline && !isSinglePlayer && !enemy.dead) {
+  // ── Player 2 (local 2P only: IJKLUH) ─────────────────────
+  if (!isOnline && !isSinglePlayer && !enemy.dead && !enemy.isDying && !enemy.isVictory) {
     switch (event.key) {
-      case 'ArrowRight': keys.ArrowRight.pressed = true; enemy.lastkey = 'ArrowRight'; break;
-      case 'ArrowLeft':  keys.ArrowLeft.pressed  = true; enemy.lastkey = 'ArrowLeft';  break;
-      case 'ArrowUp':    enemy.jump(); break;
-      case 'ArrowDown':  keys.ArrowDown.pressed = true; break;
-      case 'Enter':      enemy.attack(); break;
-      case '/':          enemy.heavyAttack(); break;
+      case 'l': case 'L':
+      case 'ArrowRight':
+        keys.l.pressed = true;
+        keys.ArrowRight.pressed = true;
+        enemy.lastkey = 'l';
+        break;
+      case 'j': case 'J':
+      case 'ArrowLeft':
+        keys.j.pressed = true;
+        keys.ArrowLeft.pressed = true;
+        enemy.lastkey = 'j';
+        break;
+      case 'i': case 'I':
+      case 'ArrowUp':
+        enemy.jump();
+        break;
+      case 'k': case 'K':
+      case 'ArrowDown':
+        keys.k.pressed = true;
+        keys.ArrowDown.pressed = true;
+        break;
+      case 'u': case 'U':
+      case 'Enter':
+        enemy.attack();
+        break;
+      case 'h': case 'H':
+      case '/':
+        enemy.heavyAttack();
+        break;
     }
   }
 });
 
 window.addEventListener('keyup', (event) => {
   switch (event.key) {
-    case 'd': keys.d.pressed = false; break;
-    case 'a': keys.a.pressed = false; break;
-    case 's': keys.s.pressed = false; player?.stopBlock(); break;
-    case 'ArrowRight': keys.ArrowRight.pressed = false; break;
-    case 'ArrowLeft':  keys.ArrowLeft.pressed  = false; break;
-    case 'ArrowDown':  keys.ArrowDown.pressed  = false; enemy?.stopBlock(); break;
+    // P1
+    case 'd': case 'D': keys.d.pressed = false; break;
+    case 'a': case 'A': keys.a.pressed = false; break;
+    case 's': case 'S':
+      keys.s.pressed = false;
+      if (isOnline && onlineRole === 'guest') {
+        enemy?.stopBlock();
+      } else {
+        player?.stopBlock();
+      }
+      break;
+
+    // P2
+    case 'l': case 'L':
+    case 'ArrowRight':
+      keys.l.pressed = false;
+      keys.ArrowRight.pressed = false;
+      break;
+    case 'j': case 'J':
+    case 'ArrowLeft':
+      keys.j.pressed = false;
+      keys.ArrowLeft.pressed = false;
+      break;
+    case 'k': case 'K':
+    case 'ArrowDown':
+      keys.k.pressed = false;
+      keys.ArrowDown.pressed = false;
+      enemy?.stopBlock();
+      break;
   }
 });
 
@@ -885,7 +1463,7 @@ const singlePlayerBtn= document.getElementById('singlePlayerButton');
 const onlineBtn      = document.getElementById('onlineButton');
 
 // ── Text menu-item cursor navigation ───────────────────────
-const MENU_ACTIONS = ['2p', '1p', 'online'];
+const MENU_ACTIONS = ['2p', '1p', 'online', 'tutorial'];
 let menuCursor = 0;
 
 function updateMenuCursor() {
@@ -894,16 +1472,18 @@ function updateMenuCursor() {
     el.textContent = (i === menuCursor ? '▶ ' : '    ') + [
       'LOCAL 2 PLAYER',
       'SINGLEPLAYER (VS AI)',
-      'MULTIPLAYER'
+      'MULTIPLAYER',
+      'TUTORIAL / HOW TO PLAY'
     ][i];
   });
 }
 
 function triggerMenuAction(action) {
   mainMenu.style.display = 'none';
-  if      (action === '2p')     CS.show();
-  else if (action === '1p')     showDifficultySelect();
-  else if (action === 'online') showOnlineMenu();
+  if      (action === '2p')       CS.show();
+  else if (action === '1p')       showDifficultySelect();
+  else if (action === 'online')   showOnlineMenu();
+  else if (action === 'tutorial') showTutorial();
 }
 
 // Click wiring for text menu items
@@ -952,6 +1532,55 @@ localPlayerBtn.addEventListener('click', () => {
 });
 
 // ════════════════════════════════════════════════════════════
+// TUTORIAL / HOW TO PLAY OVERLAY
+// ════════════════════════════════════════════════════════════
+const tutorialOverlay = document.getElementById('tutorialOverlay');
+const tutTabSingle    = document.getElementById('tutTabSingle');
+const tutTabMulti     = document.getElementById('tutTabMulti');
+const tutPanelSingle  = document.getElementById('tutPanelSingle');
+const tutPanelMulti   = document.getElementById('tutPanelMulti');
+const tutBackBtn      = document.getElementById('tutorialBackBtn');
+
+function setTutorialTab(tab) {
+  if (tutTabSingle) tutTabSingle.classList.toggle('active', tab === 'single');
+  if (tutTabMulti)  tutTabMulti.classList.toggle('active', tab === 'multi');
+  if (tutPanelSingle) tutPanelSingle.style.display = (tab === 'single') ? 'block' : 'none';
+  if (tutPanelMulti)  tutPanelMulti.style.display  = (tab === 'multi') ? 'block' : 'none';
+}
+
+function showTutorial() {
+  if (typeof BGM !== 'undefined') BGM.playMenu();
+  setTutorialTab('single');
+  if (tutorialOverlay) tutorialOverlay.style.display = 'flex';
+}
+
+function hideTutorial() {
+  if (tutorialOverlay) tutorialOverlay.style.display = 'none';
+  mainMenu.style.display = 'flex';
+  if (typeof BGM !== 'undefined') BGM.playMenu();
+}
+
+if (tutTabSingle) tutTabSingle.addEventListener('click', () => setTutorialTab('single'));
+if (tutTabMulti)  tutTabMulti.addEventListener('click', () => setTutorialTab('multi'));
+if (tutBackBtn)   tutBackBtn.addEventListener('click', hideTutorial);
+
+// Keyboard navigation while tutorial is open
+window.addEventListener('keydown', (e) => {
+  if (tutorialOverlay && tutorialOverlay.style.display === 'flex') {
+    if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'm' || e.key === 'M') {
+      e.preventDefault();
+      hideTutorial();
+    } else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A' || e.key === '1') {
+      e.preventDefault();
+      setTutorialTab('single');
+    } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D' || e.key === '2') {
+      e.preventDefault();
+      setTutorialTab('multi');
+    }
+  }
+});
+
+// ════════════════════════════════════════════════════════════
 // ONLINE LOBBY UI
 // ════════════════════════════════════════════════════════════
 const onlineMenu      = document.getElementById('onlineMenu');
@@ -994,11 +1623,9 @@ function showOnlineWaiting(title, code) {
 function setupOnlineListeners() {
   // ── Connection error ─ show in status field ────────────────
   ONLINE.onConnectError((msg) => {
-    // If we're still on the lobby step, show the error there
     if (onlineLobbyStep.style.display !== 'none') {
       setOnlineStatus(msg, 'error');
     } else {
-      // If we're on the waiting step, go back and show error
       onlineWaitStep.style.display  = 'none';
       onlineLobbyStep.style.display = '';
       setOnlineStatus(msg, 'error');
@@ -1030,37 +1657,63 @@ function setupOnlineListeners() {
     CS.showOnline(onlineRole);
   });
 
-  ONLINE.onCharSelected(({ p1Key, p2Key }) => {
-    // Guest receives char selection from host
+  ONLINE.onCharSelected(({ p1Key, p2Key, mapPath, mapShowShop, mapMusic }) => {
+    // Guest receives char selection and map from host
     hideOnlineMenu();
-    CS.startOnlineMatch(p1Key, p2Key);
+    CS.startOnlineMatch(p1Key, p2Key, mapPath, mapShowShop, mapMusic);
   });
 
-  ONLINE.onOpponentInput(({ frame, keys: oppKeys, actions: oppActions }) => {
-    // Buffer the opponent's input state for next animate() tick
-    opponentKeys = oppKeys || {};
-    // Merge one-shot actions (don't overwrite — OR them together)
-    if (oppActions) {
-      if (oppActions.jump)   opponentActions.jump   = true;
-      if (oppActions.attack) opponentActions.attack  = true;
-      if (oppActions.heavy)  opponentActions.heavy   = true;
-    }
-    // Also update lastkey for movement
-    if (oppKeys && oppKeys.a) {
-      const rf = onlineRole === 'guest' ? player : enemy;
-      if (rf) rf.lastkey = 'a';
-    }
-    if (oppKeys && oppKeys.d) {
-      const rf = onlineRole === 'guest' ? player : enemy;
-      if (rf) rf.lastkey = 'd';
+  // Host receives inputs from guest
+  ONLINE.onGuestInput((data) => {
+    if (!data) return;
+    opponentKeys = data.keys || {};
+    if (data.actions) {
+      if (data.actions.jump)   opponentActions.jump   = true;
+      if (data.actions.attack) opponentActions.attack  = true;
+      if (data.actions.heavy)  opponentActions.heavy   = true;
     }
   });
 
-  ONLINE.onRematch(() => {
+  // Legacy opponent input alias
+  ONLINE.onOpponentInput((data) => {
+    if (!data) return;
+    opponentKeys = data.keys || {};
+    if (data.actions) {
+      if (data.actions.jump)   opponentActions.jump   = true;
+      if (data.actions.attack) opponentActions.attack  = true;
+      if (data.actions.heavy)  opponentActions.heavy   = true;
+    }
+  });
+
+  // Guest receives authoritative state from host
+  ONLINE.onStateSync((state) => {
+    if (!isOnline || onlineRole !== 'guest') return;
+    handleGuestStateSync(state);
+  });
+
+  // Rematch status notification
+  ONLINE.onRematchStatus(({ host, guest }) => {
+    if (!isOnline) return;
+    let hint = '';
+    if (onlineRole === 'host') {
+      if (host && !guest) hint = '✔ WAITING FOR GUEST TO ACCEPT REMATCH... (1/2)';
+      else if (!host && guest) hint = '🥊 GUEST WANTS A REMATCH! Press R to Accept! (1/2)';
+    } else {
+      if (guest && !host) hint = '✔ WAITING FOR HOST TO ACCEPT REMATCH... (1/2)';
+      else if (!guest && host) hint = '🥊 HOST WANTS A REMATCH! Press R to Accept! (1/2)';
+    }
+    setRematchStatusText(!!hint);
+    const el = document.getElementById('onlineRematchHint');
+    if (el && hint) el.textContent = hint;
+  });
+
+  // Synchronized rematch start for both clients
+  ONLINE.onRematchStart(() => {
+    if (typeof Announcer !== 'undefined') Announcer.stop();
     hideAllResults();
+    setRematchStatusText(false);
     document.getElementById('disconnectOverlay').classList.remove('visible');
-    // Reset and start a new match with the same characters
-    startOnlineMatch(chosenP1Key, chosenP2Key);
+    startOnlineMatch(chosenP1Key, chosenP2Key, chosenMapPath, chosenMapShowShop, chosenMapMusic);
   });
 
   ONLINE.onOpponentDisconnected(() => {
@@ -1068,7 +1721,6 @@ function setupOnlineListeners() {
     document.getElementById('disconnectOverlay').classList.add('visible');
   });
 }
-
 
 // Wire up Create Room button
 document.getElementById('createRoomBtn').addEventListener('click', () => {
@@ -1101,6 +1753,7 @@ roomCodeInput.addEventListener('input', () => {
 
 // Back buttons
 document.getElementById('onlineBackBtn').addEventListener('click', () => {
+  if (typeof Announcer !== 'undefined') Announcer.stop();
   ONLINE.disconnect();
   hideOnlineMenu();
   mainMenu.style.display = 'flex';
@@ -1108,6 +1761,7 @@ document.getElementById('onlineBackBtn').addEventListener('click', () => {
 });
 
 document.getElementById('onlineWaitBackBtn').addEventListener('click', () => {
+  if (typeof Announcer !== 'undefined') Announcer.stop();
   ONLINE.disconnect();
   hideOnlineMenu();
   mainMenu.style.display = 'flex';
@@ -1116,6 +1770,7 @@ document.getElementById('onlineWaitBackBtn').addEventListener('click', () => {
 
 // Disconnect overlay OK button
 document.getElementById('disconnectOkBtn').addEventListener('click', () => {
+  if (typeof Announcer !== 'undefined') Announcer.stop();
   document.getElementById('disconnectOverlay').classList.remove('visible');
   isOnline   = false;
   onlineRole = null;
@@ -1134,19 +1789,25 @@ onlineBtn.addEventListener('click', () => {
 // ════════════════════════════════════════════════════════════
 // START ONLINE MATCH  (called after both chars are known)
 // ════════════════════════════════════════════════════════════
-function startOnlineMatch(p1Key, p2Key) {
-  chosenP1Key    = p1Key;
-  chosenP2Key    = p2Key;
-  isSinglePlayer = false;
-  isOnline       = true;
-  chosenMapMusic = typeof BGM !== 'undefined' ? BGM.getMusicForMap(chosenMapPath) : './BackgroundMusic/OakForest.m4a';
-  currentRound   = 0;
-  p1RoundWins    = 0;
-  p2RoundWins    = 0;
-  onlineFrame    = 0;
-  opponentKeys    = {};
-  opponentActions = {};
-  localActions    = {};
+function startOnlineMatch(p1Key, p2Key, mapPath, showShop, musicPath) {
+  chosenP1Key       = p1Key;
+  chosenP2Key       = p2Key;
+  isSinglePlayer    = false;
+  isOnline          = true;
+  chosenMapPath     = mapPath    || './images/background.png';
+  chosenMapShowShop = (showShop === undefined || showShop === null) ? true : !!showShop;
+  chosenMapMusic    = musicPath  || (typeof BGM !== 'undefined' ? BGM.getMusicForMap(chosenMapPath) : './BackgroundMusic/OakForest.m4a');
+  currentRound          = 0;
+  p1RoundWins           = 0;
+  p2RoundWins           = 0;
+  onlineFrame           = 0;
+  opponentKeys          = {};
+  opponentActions       = {};
+  localActions          = {};
+  onlinePendingHit      = null;
+  inDeathOrVictoryPhase = false;
+  roundEndHandled       = false;
+  setRematchStatusText(false);
 
   if (typeof BGM !== 'undefined') {
     BGM.playStage(chosenMapMusic);
@@ -1160,11 +1821,11 @@ function startOnlineMatch(p1Key, p2Key) {
   const p1ctrl = document.querySelector('.p1-controls');
   const p2ctrl = document.querySelector('.p2-controls');
   if (onlineRole === 'host') {
-    if (p1ctrl) p1ctrl.textContent = 'YOU (HOST) — SPACE=Light  F=Heavy  S=Block';
+    if (p1ctrl) p1ctrl.textContent = 'YOU (HOST) — E=Light  F=Heavy  S=Block';
     if (p2ctrl) p2ctrl.textContent = 'OPPONENT';
   } else {
     if (p1ctrl) p1ctrl.textContent = 'OPPONENT';
-    if (p2ctrl) p2ctrl.textContent = 'YOU (GUEST) — SPACE=Light  F=Heavy  S=Block';
+    if (p2ctrl) p2ctrl.textContent = 'YOU (GUEST) — E=Light  F=Heavy  S=Block';
   }
 
   refreshWinDots();

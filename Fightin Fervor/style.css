@@ -87,36 +87,40 @@ canvas {
   transform: scaleX(-1); /* flip to face left */
 }
 
-/* Title — flame gradient */
-#mainTitle {
+/* Title — graphic logo */
+#mainTitleWrap {
   position: relative;
   z-index: 2;
-  font-size: 44px;
-  line-height: 1.1;
-  text-align: center;
-  letter-spacing: 6px;
-  margin-bottom: 36px;
-  margin-top: -20px;
-  /* Flame gradient: yellow centre → red → dark red */
-  background: linear-gradient(180deg,
-    #fff5a0 0%,
-    #ffd700 20%,
-    #ff8c00 50%,
-    #cc1100 80%,
-    #7a0000 100%
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  filter: drop-shadow(0 0 18px rgba(255,100,0,0.9))
-          drop-shadow(3px 3px 0 rgba(0,0,0,0.95))
-          drop-shadow(0 0 40px rgba(255,60,0,0.5));
-  animation: flamePulse 2s ease-in-out infinite alternate;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: -15px;
+  margin-bottom: 22px;
 }
 
-@keyframes flamePulse {
-  from { filter: drop-shadow(0 0 14px rgba(255,100,0,0.8))  drop-shadow(3px 3px 0 rgba(0,0,0,0.95)); }
-  to   { filter: drop-shadow(0 0 28px rgba(255,160,0,1.0))  drop-shadow(3px 3px 0 rgba(0,0,0,0.95)) drop-shadow(0 0 50px rgba(255,80,0,0.7)); }
+#mainTitle {
+  position: relative;
+  width: 480px;
+  max-width: 85%;
+  height: auto;
+  max-height: 230px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 0 18px rgba(255,100,0,0.85))
+          drop-shadow(0 6px 14px rgba(0,0,0,0.95));
+  animation: titleFlamePulse 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes titleFlamePulse {
+  from {
+    transform: scale(1);
+    filter: drop-shadow(0 0 16px rgba(255,100,0,0.8)) drop-shadow(0 6px 14px rgba(0,0,0,0.95));
+  }
+  to {
+    transform: scale(1.025);
+    filter: drop-shadow(0 0 32px rgba(255,160,0,1.0)) drop-shadow(0 8px 20px rgba(0,0,0,0.95)) drop-shadow(0 0 50px rgba(255,80,0,0.6));
+  }
 }
 
 /* Menu items nav */
@@ -550,11 +554,46 @@ canvas {
   display: none;
   position: absolute;
   inset: 0;
-  background: transparent;
+  background: radial-gradient(circle at center, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.05) 75%);
   pointer-events: none;
   align-items: center;
   justify-content: center;
-  z-index: 20;
+  z-index: 30;
+}
+
+#roundIntro.visible {
+  display: flex;
+}
+
+.round-intro-img {
+  max-width: 680px;
+  max-height: 250px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  opacity: 0;
+  transform: scale(0.65);
+  filter: drop-shadow(0 0 25px rgba(255, 120, 0, 0.8)) drop-shadow(0 8px 20px rgba(0, 0, 0, 0.95));
+  transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), filter 0.35s ease;
+  will-change: transform, opacity;
+}
+
+.round-intro-img.pop {
+  opacity: 1;
+  transform: scale(1);
+  filter: drop-shadow(0 0 38px rgba(255, 160, 0, 1)) drop-shadow(0 8px 24px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 60px rgba(255, 70, 0, 0.65));
+}
+
+.round-intro-img.fight-pop {
+  opacity: 1;
+  transform: scale(1.08);
+  filter: drop-shadow(0 0 45px rgba(255, 60, 20, 1)) drop-shadow(0 8px 30px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 75px rgba(255, 20, 0, 0.8));
+}
+
+.round-intro-img.fade-out {
+  opacity: 0;
+  transform: scale(1.14);
+  transition: opacity 0.22s ease-in, transform 0.22s ease-in;
 }
 
 #roundIntroText {
@@ -565,10 +604,6 @@ canvas {
   opacity: 0;
   transform: scale(0.6);
   transition: opacity 0.25s ease, transform 0.25s ease;
-}
-
-#roundIntro.visible {
-  display: flex;
 }
 
 #roundIntroText.pop {
@@ -599,17 +634,83 @@ canvas {
   pointer-events: none;
 }
 
-/* Match-end overlay: stacked layout for winner + hints */
+/* Match-end overlay */
 #displayMatch {
   flex-direction: column;
   gap: 0;
   text-align: center;
   line-height: 1.3;
   padding: 20px;
+  background: radial-gradient(circle at center, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.1) 75%);
 }
-#displayMatch span {
-  display: block;
+
+.match-winner-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  pointer-events: none;
+}
+
+.match-winner-img {
+  max-width: 720px;
+  max-height: 220px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  opacity: 0;
+  transform: scale(0.65);
+  filter: drop-shadow(0 0 25px rgba(255, 140, 0, 0.8)) drop-shadow(0 8px 24px rgba(0, 0, 0, 0.95));
+  transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.45s ease;
+  will-change: transform, opacity;
+}
+
+.match-winner-img.pop {
+  opacity: 1;
+  transform: scale(1);
+  filter: drop-shadow(0 0 38px rgba(255, 160, 0, 1)) drop-shadow(0 8px 25px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 65px rgba(255, 70, 0, 0.6));
+}
+
+.match-winner-text {
+  font-family: 'Press Start 2P', cursive;
+  font-size: 26px;
+  letter-spacing: 4px;
+}
+
+.match-hints {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.match-hints.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.match-hint-line {
+  font-family: 'Press Start 2P', cursive;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.88);
   letter-spacing: 2px;
+  text-shadow: 2px 2px 0 #000, 0 0 10px rgba(0, 0, 0, 0.9);
+}
+
+.match-hint-line .key-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+  font-size: 12px;
+  color: #ffd700;
+  margin: 0 4px;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -734,6 +835,355 @@ canvas {
   letter-spacing: 1px;
   text-align: center;
   line-height: 1.8;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TUTORIAL / HOW TO PLAY OVERLAY
+═══════════════════════════════════════════════════════════ */
+#tutorialOverlay {
+  display: none;            /* shown by showTutorial() */
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 6, 16, 0.95);
+  align-items: center;
+  justify-content: center;
+  z-index: 45;
+  backdrop-filter: blur(4px);
+}
+
+#tutorialBox {
+  width: 920px;
+  max-width: 95%;
+  max-height: 540px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 24px;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, rgba(25, 20, 45, 0.9) 0%, rgba(12, 10, 24, 0.98) 100%);
+  border: 2px solid rgba(255, 170, 0, 0.4);
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.95), inset 0 0 25px rgba(255, 140, 0, 0.08);
+  font-family: 'Press Start 2P', cursive;
+}
+
+#tutorialTitle {
+  color: #ffd700;
+  font-size: 18px;
+  letter-spacing: 4px;
+  text-shadow: 0 0 16px rgba(255, 215, 0, 0.8), 2px 2px 0 #000;
+  margin: 0 0 4px 0;
+  text-align: center;
+}
+
+.tutorial-subtitle {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 7px;
+  letter-spacing: 1px;
+  margin: 0 0 12px 0;
+  text-align: center;
+}
+
+/* Tabs */
+.tutorial-tabs {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  width: 100%;
+  justify-content: center;
+}
+
+.tutorial-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  cursor: pointer;
+  color: white;
+  transition: all 0.2s ease;
+  font-family: 'Press Start 2P', cursive;
+}
+
+.tutorial-tab-btn:hover {
+  background: rgba(255, 215, 0, 0.12);
+  border-color: rgba(255, 215, 0, 0.5);
+}
+
+.tutorial-tab-btn.active {
+  background: rgba(255, 170, 0, 0.22);
+  border-color: #ffd700;
+  box-shadow: 0 0 18px rgba(255, 180, 0, 0.45);
+}
+
+.tut-tab-icon {
+  font-size: 18px;
+}
+
+.tut-tab-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 3px;
+}
+
+.tut-tab-title {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: #fff;
+}
+
+.tut-tab-keys {
+  font-size: 7px;
+  color: #ffd700;
+  letter-spacing: 0.5px;
+}
+
+/* Panels */
+.tutorial-panel {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.tut-panel-header {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.tut-badge-tag {
+  padding: 4px 12px;
+  font-size: 8px;
+  letter-spacing: 1.5px;
+  border-radius: 4px;
+}
+
+.p1-tag {
+  background: rgba(124, 134, 255, 0.2);
+  border: 1px solid #7c86ff;
+  color: #a4afff;
+}
+
+.p2-tag {
+  background: rgba(255, 107, 107, 0.2);
+  border: 1px solid #ff6b6b;
+  color: #ffa4a4;
+}
+
+/* Key cards grid */
+.tut-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  width: 100%;
+}
+
+.tut-key-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+}
+
+.key-cap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 30px;
+  padding: 0 6px;
+  background: linear-gradient(180deg, #383838 0%, #1e1e1e 100%);
+  border: 1px solid #666;
+  border-bottom: 3px solid #111;
+  border-radius: 5px;
+  color: #ffd700;
+  font-family: 'Press Start 2P', cursive;
+  font-size: 11px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.6);
+}
+
+.key-action {
+  font-size: 7px;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+.highlight-light {
+  border-color: rgba(100, 220, 255, 0.45);
+  background: rgba(0, 180, 255, 0.08);
+}
+.highlight-light .key-cap {
+  color: #64dcff;
+}
+
+.highlight-heavy {
+  border-color: rgba(255, 80, 80, 0.45);
+  background: rgba(255, 50, 50, 0.08);
+}
+.highlight-heavy .key-cap {
+  color: #ff6464;
+}
+
+/* Split multiplayer layout */
+.tut-split-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+
+.tut-player-col {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.p1-col {
+  border-color: rgba(124, 134, 255, 0.3);
+}
+
+.p2-col {
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+.tut-split-divider {
+  font-size: 12px;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.7);
+}
+
+.tut-controls-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.tut-list-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 6.5px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tut-list-row .key-cap {
+  min-width: 24px;
+  height: 24px;
+  font-size: 9px;
+  border-bottom: 2px solid #111;
+}
+
+/* System row */
+.tut-system-row {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  font-size: 7px;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+
+.key-cap-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  background: #252525;
+  border: 1px solid #555;
+  border-bottom: 2px solid #111;
+  border-radius: 3px;
+  color: #ffd700;
+  font-size: 8px;
+  font-family: 'Press Start 2P', cursive;
+  margin-right: 4px;
+}
+
+/* Mechanics Cards */
+.tut-mechanics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.tut-mech-box {
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+}
+
+.highlight-launch-box {
+  border-color: rgba(255, 140, 0, 0.6);
+  background: linear-gradient(135deg, rgba(255, 100, 0, 0.14) 0%, rgba(200, 40, 0, 0.06) 100%);
+  box-shadow: inset 0 0 15px rgba(255, 100, 0, 0.18);
+}
+
+.tut-mech-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.tut-mech-icon {
+  font-size: 13px;
+}
+
+.tut-mech-title {
+  font-size: 7.5px;
+  letter-spacing: 1px;
+  color: #ffd700;
+}
+
+.tut-mech-text {
+  font-size: 6.5px;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.tut-mech-text strong {
+  color: #ffaa33;
+}
+
+.tut-back-btn {
+  padding: 8px 22px;
+  font-family: 'Press Start 2P', cursive;
+  font-size: 8.5px;
+  letter-spacing: 2px;
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.08);
+  border: 2px solid #ffd700;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tut-back-btn:hover {
+  background: #ffd700;
+  color: #000;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+  transform: scale(1.02);
 }
 
 

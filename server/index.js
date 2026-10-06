@@ -1,25 +1,11 @@
 // =========================================================
 // FIGHTIN' FERVOR — server/index.js
 // Socket.io relay server for online multiplayer
-//
-// Protocol:
-//   create_room   → { roomCode }         (host creates)
-//   join_room     → { roomCode }         (guest joins)
-//   room_joined   ← { role:'host'|'guest', roomCode }
-//   room_full     ← { roomCode }         (rejected)
-//   room_not_found← { roomCode }
-//   opponent_ready← {}                   (both connected)
-//   char_select   → { p1Key, p2Key }     (host sends after both pick)
-//   char_selected ← { p1Key, p2Key }     (relayed to guest)
-//   input         → { frame, keys }      (sent every frame)
-//   input         ← { frame, keys }      (relayed from opponent)
-//   opponent_disconnected ← {}
-//   rematch       → {}                   (either player)
-//   rematch       ← {}                   (relayed to opponent)
 // =========================================================
 
-const express   = require('express');
-const http      = require('http');
+const express    = require('express');
+const http       = require('http');
+const path       = require('path');
 const { Server } = require('socket.io');
 
 const app    = express();
@@ -33,7 +19,14 @@ const io     = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-// rooms: { [code]: { host: socketId, guest: socketId|null } }
+// Serve game static assets if opened directly at http://localhost:3000
+const staticDir = path.join(__dirname, '..', 'Fightin Fervor');
+app.use(express.static(staticDir));
+
+// Health check endpoint (Railway / Render need this)
+app.get('/health', (req, res) => res.json({ status: 'ok', rooms: rooms.size }));
+
+// rooms: Map<string, { host: string, guest: string|null, hostRematch: boolean, guestRematch: boolean }>
 const rooms = new Map();
 
 // Generate a random 4-char room code (uppercase letters)
@@ -48,16 +41,18 @@ function generateCode() {
   return code;
 }
 
-// Health check endpoint (Railway / Render need this)
-app.get('/', (req, res) => res.json({ status: 'ok', rooms: rooms.size }));
-
 io.on('connection', (socket) => {
   console.log(`[+] Connected: ${socket.id}`);
 
   // ── Create room ──────────────────────────────────────────────
   socket.on('create_room', () => {
     const code = generateCode();
-    rooms.set(code, { host: socket.id, guest: null });
+    rooms.set(code, {
+      host: socket.id,
+      guest: null,
+      hostRematch: false,
+      guestRematch: false,
+    });
     socket.join(code);
     socket.roomCode = code;
     socket.role     = 'host';
@@ -67,7 +62,11 @@ io.on('connection', (socket) => {
 
   // ── Join room ────────────────────────────────────────────────
   socket.on('join_room', ({ roomCode }) => {
-    const code = roomCode.toUpperCase().trim();
+    if (!roomCode) {
+      socket.emit('room_not_found', { roomCode: '' });
+      return;
+    }
+    const code = String(roomCode).toUpperCase().trim();
     const room = rooms.get(code);
 
     if (!room) {
@@ -91,29 +90,86 @@ io.on('connection', (socket) => {
     console.log(`[room] ${code} — guest joined: ${socket.id}`);
   });
 
-  // ── Character selection sync (host sends after both choose) ──
+  // ── Character selection pick updates (real-time hover/lock-in) ──
+  socket.on('char_pick', (data) => {
+    const code = socket.roomCode;
+    if (!code) return;
+    socket.to(code).emit('char_pick', data);
+  });
+
+  // ── Character selection complete (host sends after both choose) ──
   socket.on('char_select', (data) => {
     const code = socket.roomCode;
     if (!code) return;
-    // Relay to the other player in the room
     socket.to(code).emit('char_selected', data);
   });
 
-  // ── Input relay (called every frame) ─────────────────────────
+  // ── Guest inputs sent to host (authoritative simulation) ───
+  socket.on('guest_input', (data) => {
+    const code = socket.roomCode;
+    if (!code) return;
+    socket.to(code).emit('guest_input', data);
+  });
+
+  // Legacy input relay alias
   socket.on('input', (data) => {
     const code = socket.roomCode;
     if (!code) return;
     socket.to(code).emit('input', data);
   });
 
-  // ── Rematch request ──────────────────────────────────────────
+  // ── Host authoritative state broadcast ─────────────────────
+  socket.on('state_sync', (data) => {
+    const code = socket.roomCode;
+    if (!code) return;
+    socket.to(code).emit('state_sync', data);
+  });
+
+  // ── Rematch request handling ───────────────────────────────
+  socket.on('rematch_request', () => {
+    const code = socket.roomCode;
+    if (!code) return;
+    const room = rooms.get(code);
+    if (!room) return;
+
+    if (socket.role === 'host')  room.hostRematch = true;
+    if (socket.role === 'guest') room.guestRematch = true;
+
+    io.to(code).emit('rematch_status', {
+      host: !!room.hostRematch,
+      guest: !!room.guestRematch,
+    });
+
+    if (room.hostRematch && room.guestRematch) {
+      room.hostRematch  = false;
+      room.guestRematch = false;
+      io.to(code).emit('rematch_start');
+    }
+  });
+
+  // Legacy rematch alias
   socket.on('rematch', () => {
     const code = socket.roomCode;
     if (!code) return;
-    socket.to(code).emit('rematch');
+    const room = rooms.get(code);
+    if (!room) return;
+
+    if (socket.role === 'host')  room.hostRematch = true;
+    if (socket.role === 'guest') room.guestRematch = true;
+
+    io.to(code).emit('rematch_status', {
+      host: !!room.hostRematch,
+      guest: !!room.guestRematch,
+    });
+
+    if (room.hostRematch && room.guestRematch) {
+      room.hostRematch  = false;
+      room.guestRematch = false;
+      io.to(code).emit('rematch_start');
+    }
   });
 
-  // ── Disconnect ───────────────────────────────────────────────
+  // ── Disconnect ─────────────────────────────────────────────
   socket.on('disconnect', () => {
     console.log(`[-] Disconnected: ${socket.id}`);
     const code = socket.roomCode;
@@ -121,7 +177,6 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(code);
     if (room) {
-      // Notify remaining player
       socket.to(code).emit('opponent_disconnected');
       rooms.delete(code);
       console.log(`[room] ${code} deleted`);

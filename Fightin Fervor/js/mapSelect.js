@@ -227,13 +227,15 @@ const MS = (() => {
           updatePickLabels();
         }
         break;
+      case 'e': case 'E':
       case ' ':
         e.preventDefault();
         confirmMap(1);
-        if (isSPMode) confirmMap(2); // SP: space confirms for both
+        if (isSPMode) confirmMap(2); // SP: space/E confirms for both
         break;
 
-      // P2: ArrowLeft/Right to browse, Enter to confirm
+      // P2: J/L (or ArrowLeft/Right) to browse, U (or Enter) to confirm
+      case 'j': case 'J':
       case 'ArrowLeft':
         e.preventDefault();
         if (!isSPMode && !p2Confirmed) {
@@ -242,6 +244,7 @@ const MS = (() => {
           updatePickLabels();
         }
         break;
+      case 'l': case 'L':
       case 'ArrowRight':
         e.preventDefault();
         if (!isSPMode && !p2Confirmed) {
@@ -250,6 +253,7 @@ const MS = (() => {
           updatePickLabels();
         }
         break;
+      case 'u': case 'U':
       case 'Enter':
         e.preventDefault();
         if (isSPMode) {
